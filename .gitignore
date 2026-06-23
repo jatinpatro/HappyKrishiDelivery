@@ -37,3 +37,4 @@ happykrishi_flutter/web/flutter_service_worker.js
 # PEM keys — NEVER commit
 *.pem
 *.key
+.github/
