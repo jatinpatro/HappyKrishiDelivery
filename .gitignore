@@ -1,0 +1,39 @@
+# DB backups — never commit real data
+db_backups/
+
+# Backend
+happykrishi_backend/.env
+happykrishi_backend/node_modules/
+happykrishi_backend/data/
+happykrishi_backend/logs/
+happykrishi_backend/uploads/
+happykrishi_backend/*.pid
+
+# Flutter build artifacts
+happykrishi_flutter/build/
+happykrishi_flutter/.dart_tool/
+happykrishi_flutter/.flutter-plugins
+happykrishi_flutter/.flutter-plugins-dependencies
+happykrishi_flutter/pubspec.lock
+
+# Flutter iOS/macOS
+happykrishi_flutter/ios/Pods/
+happykrishi_flutter/ios/.symlinks/
+happykrishi_flutter/macos/Pods/
+happykrishi_flutter/macos/.symlinks/
+
+# Flutter web build
+happykrishi_flutter/web/flutter_service_worker.js
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# PEM keys — NEVER commit
+*.pem
+*.key

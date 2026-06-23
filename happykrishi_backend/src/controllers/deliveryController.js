@@ -1,0 +1,165 @@
+const db = require('../config/database');
+const walletService = require('../services/walletService');
+const notificationService = require('../services/notificationService');
+const whatsappService = require('../services/whatsappService');
+const emailService = require('../services/emailService');
+const { checkGeofence } = require('../services/geofenceService');
+const wsServer = require('../websocket/server');
+
+function getMyOrder(req, res) {
+  const agentUser = db.prepare('SELECT id FROM delivery_agents WHERE user_id = ?').get(req.user.id);
+  if (!agentUser) return res.status(404).json({ error: 'Not a delivery agent' });
+
+  const delivery = db.prepare(`
+    SELECT d.*, o.order_number, o.delivery_date, o.final_amount,
+           s.label as slot_label, s.start_time, s.end_time,
+           a.address_line, a.city, a.pincode, a.lat, a.lng,
+           u.name as customer_name, u.phone as customer_phone
+    FROM deliveries d
+    JOIN orders o ON o.id = d.order_id
+    LEFT JOIN delivery_slots s ON s.id = o.slot_id
+    JOIN addresses a ON a.id = o.address_id
+    JOIN users u ON u.id = o.user_id
+    WHERE d.agent_id = ? AND d.status IN ('assigned','picked')
+    ORDER BY d.assigned_at DESC LIMIT 1
+  `).get(agentUser.id);
+
+  if (!delivery) return res.json({ delivery: null });
+
+  const items = db.prepare(`
+    SELECT oi.*, p.name as product_name, p.unit, p.is_weight_adjusted
+    FROM order_items oi JOIN products p ON p.id = oi.product_id
+    WHERE oi.order_id = ?
+  `).all(delivery.order_id);
+
+  res.json({ delivery, items });
+}
+
+function updateLocation(req, res) {
+  const { lat, lng } = req.body;
+  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng required' });
+
+  const agent = db.prepare('SELECT * FROM delivery_agents WHERE user_id = ?').get(req.user.id);
+  if (!agent) return res.status(404).json({ error: 'Not a delivery agent' });
+
+  db.prepare("UPDATE delivery_agents SET current_lat=?, current_lng=?, last_seen_at=datetime('now') WHERE id=?").run(lat, lng, agent.id);
+
+  // Find active order for this agent
+  const delivery = db.prepare("SELECT * FROM deliveries WHERE agent_id = ? AND status IN ('assigned','picked')").get(agent.id);
+  if (delivery) {
+    // Broadcast to WebSocket clients tracking this order
+    wsServer.broadcast(delivery.order_id, { type: 'location', lat, lng, order_id: delivery.order_id });
+    // Geofence check
+    checkGeofence(lat, lng, delivery.order_id);
+  }
+
+  res.json({ message: 'Location updated' });
+}
+
+function markPicked(req, res) {
+  const { id } = req.params;
+  const agent = db.prepare('SELECT * FROM delivery_agents WHERE user_id = ?').get(req.user.id);
+  if (!agent) return res.status(404).json({ error: 'Not a delivery agent' });
+
+  const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ? AND agent_id = ?').get(id, agent.id);
+  if (!delivery) return res.status(404).json({ error: 'Delivery not found' });
+  if (delivery.status !== 'assigned') return res.status(400).json({ error: 'Order not in assigned state' });
+
+  db.prepare("UPDATE deliveries SET status='picked', picked_at=datetime('now') WHERE id=?").run(id);
+  db.prepare("UPDATE orders SET status='dispatched', updated_at=datetime('now') WHERE id=?").run(delivery.order_id);
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(delivery.order_id);
+  notificationService.sendToUser(order.user_id, 'Order Picked Up!', 'Your order is on the way 🚚');
+  whatsappService.sendTemplate(order.user_id, 'order_dispatched', []);
+  wsServer.broadcast(delivery.order_id, { type: 'status', status: 'dispatched' });
+
+  res.json({ message: 'Marked as picked up' });
+}
+
+function markDelivered(req, res) {
+  const { id } = req.params;
+  const { actual_weights } = req.body; // [{ order_item_id, actual_qty }]
+
+  const agent = db.prepare('SELECT * FROM delivery_agents WHERE user_id = ?').get(req.user.id);
+  if (!agent) return res.status(404).json({ error: 'Not a delivery agent' });
+
+  const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ? AND agent_id = ?').get(id, agent.id);
+  if (!delivery) return res.status(404).json({ error: 'Delivery not found' });
+  if (!['picked', 'assigned'].includes(delivery.status)) {
+    return res.status(400).json({ error: 'Order must be picked up or assigned (pickup orders)' });
+  }
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(delivery.order_id);
+  // Pickup orders skip "picked" step — only allow if it's a pickup
+  if (delivery.status === 'assigned' && order.order_type !== 'pickup') {
+    return res.status(400).json({ error: 'Delivery orders must be marked picked first' });
+  }
+  const items = db.prepare('SELECT oi.*, p.name as product_name FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?').all(order.id);
+
+  const adjustments = [];
+
+  db.transaction(() => {
+    for (const item of items) {
+      if (!item.is_weight_adjusted) continue;
+      const actualEntry = (actual_weights || []).find(w => w.order_item_id === item.id);
+      if (!actualEntry) continue;
+
+      const actualQty = parseFloat(actualEntry.actual_qty);
+      const actualTotal = parseFloat((item.unit_price * actualQty).toFixed(2));
+
+      // Diff against whatever is already billed (actual_total if admin already adjusted, else estimated_total)
+      const previousTotal = item.actual_total != null ? item.actual_total : item.estimated_total;
+      const diffAmount = parseFloat((actualTotal - previousTotal).toFixed(2));
+
+      db.prepare("UPDATE order_items SET actual_qty=?, actual_total=? WHERE id=?").run(actualQty, actualTotal, item.id);
+      adjustments.push({
+        name: item.product_name,
+        estimated_qty: item.estimated_qty,
+        actual_qty: actualQty,
+        estimated_total: item.estimated_total,
+        actual_total: actualTotal,
+        diff: diffAmount,
+        diff_amount: diffAmount,
+      });
+    }
+
+    db.prepare("UPDATE deliveries SET status='delivered', delivered_at=datetime('now'), actual_weight_recorded_at=datetime('now') WHERE id=?").run(id);
+    db.prepare("UPDATE orders SET status='delivered', payment_status='adjusted', updated_at=datetime('now') WHERE id=?").run(order.id);
+
+    // Process weight adjustments inline (avoid nested transaction)
+    const netAdjustments = adjustments.filter(a => Math.abs(a.diff_amount) > 0.005);
+    if (netAdjustments.length > 0) {
+      let totalDiff = netAdjustments.reduce((s, a) => s + a.diff_amount, 0);
+      const userRow = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(order.user_id);
+      let newBal;
+      if (totalDiff > 0) {
+        // Customer owes more — debit (floor at 0)
+        if (userRow.wallet_balance - totalDiff < 0) totalDiff = userRow.wallet_balance;
+        newBal = parseFloat((userRow.wallet_balance - totalDiff).toFixed(2));
+        db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBal, order.user_id);
+        db.prepare(`INSERT INTO wallet_transactions (user_id,type,amount,balance_after,reference_type,reference_id,description) VALUES (?,?,?,?,?,?,?)`)
+          .run(order.user_id, 'adjustment', totalDiff, newBal, 'order', order.id, 'Weight adjustment — actual exceeded estimate');
+      } else if (totalDiff < 0) {
+        // Refund
+        newBal = parseFloat((userRow.wallet_balance + Math.abs(totalDiff)).toFixed(2));
+        db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBal, order.user_id);
+        db.prepare(`INSERT INTO wallet_transactions (user_id,type,amount,balance_after,reference_type,reference_id,description) VALUES (?,?,?,?,?,?,?)`)
+          .run(order.user_id, 'refund', Math.abs(totalDiff), newBal, 'order', order.id, 'Weight adjustment — actual less than estimate');
+      }
+    }
+  })();
+
+  const updatedUser = db.prepare('SELECT wallet_balance, email FROM users WHERE id = ?').get(order.user_id);
+  notificationService.sendToUser(order.user_id, 'Order Delivered!', `Your order #${order.order_number} has been delivered.`);
+  whatsappService.sendTemplate(order.user_id, 'order_delivered', []);
+  const netAdjustmentsOut = adjustments.filter(a => Math.abs(a.diff_amount) > 0.005);
+  if (netAdjustmentsOut.length > 0) {
+    whatsappService.sendTemplate(order.user_id, 'weight_adjusted', []);
+    if (updatedUser.email) emailService.sendWeightAdjustmentReceipt(updatedUser.email, order, netAdjustmentsOut).catch(() => {});
+  }
+  wsServer.broadcast(delivery.order_id, { type: 'status', status: 'delivered' });
+
+  res.json({ message: 'Delivered', adjustments, wallet_balance: updatedUser.wallet_balance });
+}
+
+module.exports = { getMyOrder, updateLocation, markPicked, markDelivered };

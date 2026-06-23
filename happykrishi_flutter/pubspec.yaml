@@ -1,0 +1,81 @@
+name: happykrishi_delivery
+description: HappyKrishi Farm Delivery App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Navigation
+  go_router: ^14.2.0
+
+  # HTTP
+  dio: ^5.4.3
+
+  # Models
+  freezed_annotation: ^2.4.1
+  json_annotation: ^4.9.0
+
+  # Maps
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # Location
+  geolocator: ^12.0.0
+
+  # Real-time
+  web_socket_channel: ^3.0.1
+
+  # Storage
+  shared_preferences: ^2.3.0
+  flutter_secure_storage: ^9.2.2
+
+  # UI utilities
+  cached_network_image: ^3.3.1
+  image_picker: ^1.1.2
+  shimmer: ^3.0.0
+  intl: ^0.20.2
+  badges: ^3.1.2
+
+  # PDF generation & sharing
+  pdf: ^3.11.1
+  printing: ^5.13.2
+
+  cupertino_icons: ^1.0.8
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  freezed: ^2.5.2
+  build_runner: ^2.4.9
+  json_serializable: ^6.8.0
+  riverpod_generator: ^2.4.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  web:
+    generate: true
+    image_path: assets/images/logo.png
+  image_path: assets/images/logo.png
+  min_sdk_android: 21
+
+flutter:
+  uses-material-design: true
+  generate: true
+
+  assets:
+    - assets/images/
