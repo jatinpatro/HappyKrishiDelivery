@@ -30,4 +30,10 @@ async function sendToMany(userIds, title, body, data = {}) {
   await Promise.all(userIds.map(id => sendToUser(id, title, body, data)));
 }
 
-module.exports = { sendToUser, sendToMany };
+async function sendToAdmins(title, body, data = {}) {
+  const admins = db.prepare("SELECT id FROM users WHERE role IN ('admin','subadmin') AND is_active=1").all();
+  await Promise.all(admins.map(a => sendToUser(a.id, title, body, data)));
+}
+
+module.exports = { sendToUser, sendToMany, sendToAdmins };
+

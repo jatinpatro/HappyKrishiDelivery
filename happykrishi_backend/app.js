@@ -20,11 +20,13 @@ wsServer.init(server);
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow: no-origin (mobile/Postman), localhost, and the production server IP
+    // Allow: no-origin (mobile/Postman), localhost, and production domains
     if (
       !origin ||
-      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
-      /^http:\/\/88\.222\.212\.244(:\d+)?$/.test(origin)
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+      /^https?:\/\/88\.222\.212\.244(:\d+)?$/.test(origin) ||
+      /^https?:\/\/delivery\.happykrishi\.com$/.test(origin) ||
+      /^https?:\/\/accounting\.happykrishi\.com$/.test(origin)
     ) {
       callback(null, true);
     } else {
@@ -102,6 +104,14 @@ app.get('/api/delivery-slots', (req, res) => {
     slots = db.prepare('SELECT * FROM delivery_slots WHERE is_active=1 ORDER BY slot_type, start_time').all();
   }
   res.json({ slots });
+});
+
+// Public: list all active tiers (for customer info screen)
+app.get('/api/tiers', (req, res) => {
+  const tiers = db.prepare(
+    'SELECT id, name, color, min_wallet_balance, max_wallet_negative_limit, cashback_multiplier, sort_order FROM customer_tiers WHERE is_active=1 ORDER BY sort_order ASC'
+  ).all();
+  res.json({ tiers });
 });
 
 // Public pincode deliverability check
@@ -198,10 +208,15 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 
-// Error handler
+// Error handler — never expose stack traces or internal messages in production
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  console.error(`[${new Date().toISOString()}] ${req.method} ${req.path}:`, err);
+  const status = err.status || err.statusCode || 500;
+  // Only send internal details in dev; production gets a generic message
+  const message = process.env.NODE_ENV === 'development'
+    ? (err.message || 'Internal server error')
+    : 'An unexpected error occurred. Please try again.';
+  res.status(status).json({ error: message });
 });
 
 const PORT = process.env.PORT || 3000;

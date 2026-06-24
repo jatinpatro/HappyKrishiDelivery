@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/utils/error_handler.dart';
 
 final myCustomDeliveryRequestsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -213,7 +214,10 @@ class _CustomDeliveryRequestScreenState
           const SizedBox(height: 10),
           myRequests.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Text('Error: $e'),
+            error: (e, _) {
+              logError('custom-delivery-request', e);
+              return Text(friendlyError(e));
+            },
             data: (reqs) => reqs.isEmpty
                 ? const Text('No requests yet.', style: TextStyle(color: Colors.grey))
                 : Column(

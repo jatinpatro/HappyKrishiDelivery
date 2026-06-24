@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../admin/admin_products_screen.dart' show adminProductsProvider;
+import '../../core/utils/error_handler.dart';
 
 final customDeliveryRequestsProvider =
     FutureProvider.autoDispose.family<List<Map<String, dynamic>>, String>(
@@ -54,6 +56,13 @@ class _AdminCustomDeliveryScreenState
     return Scaffold(
       appBar: AppBar(
         title: const Text('Custom Delivery'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
           indicatorColor: Colors.white,
@@ -103,7 +112,7 @@ class _RequestsList extends ConsumerWidget {
     final requests = ref.watch(customDeliveryRequestsProvider(status));
     return requests.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) { logError('admin-custom-delivery', e); return Center(child: Text(friendlyError(e))); },
       data: (list) => list.isEmpty
           ? Center(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -163,8 +172,9 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
           backgroundColor: Color(0xFF2E7D32),
         ));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } catch (e, st) {
+      logError('admin-custom-delivery', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -212,8 +222,9 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Request rejected')));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } catch (e, st) {
+      logError('admin-custom-delivery', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -267,9 +278,10 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
           backgroundColor: Color(0xFF2E7D32),
         ));
       }
-    } catch (e) {
+    } catch (e, st) {
+      logError('admin-custom-delivery', e, st);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -320,8 +332,9 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
           backgroundColor: Colors.red,
         ));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } catch (e, st) {
+      logError('admin-custom-delivery', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -621,8 +634,8 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
             const SizedBox(height: 8),
             productsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Text('Error loading products: $e',
-                  style: const TextStyle(color: Colors.red)),
+              error: (e, _) { logError('admin-custom-delivery', e); return Text(friendlyError(e),
+                  style: const TextStyle(color: Colors.red)); },
               data: (products) => Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -750,7 +763,7 @@ class _WhitelistedPincodesTab extends ConsumerWidget {
 
     return pincodesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) { logError('admin-custom-delivery-pincodes', e); return Center(child: Text(friendlyError(e))); },
       data: (list) => list.isEmpty
           ? Center(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -822,9 +835,10 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
           backgroundColor: Colors.red.shade700,
         ));
       }
-    } catch (e) {
+    } catch (e, st) {
+      logError('admin-custom-delivery-pincodes', e, st);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -867,9 +881,10 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
           backgroundColor: Color(0xFF2E7D32),
         ));
       }
-    } catch (e) {
+    } catch (e, st) {
+      logError('admin-custom-delivery-pincodes', e, st);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -1095,7 +1110,8 @@ class _EditPincodeSheetState extends ConsumerState<_EditPincodeSheet> {
             const SizedBox(height: 8),
             productsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Text('Error: $e'),
+              error: (e, _) { logError('admin-custom-delivery', e); return Text(friendlyError(e),
+                  style: const TextStyle(color: Colors.red)); },
               data: (products) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Text('${_selectedIds.length}/${products.length} selected',

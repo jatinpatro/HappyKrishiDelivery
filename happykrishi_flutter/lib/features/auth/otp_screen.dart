@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
@@ -342,6 +344,53 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
                 ],
               ),
             ),
+
+            // ── Download APK banner (web only) ──────────────────────────────
+            if (kIsWeb) ...[
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: () => launchUrl(
+                  Uri.parse('https://delivery.happykrishi.com/happykrishi-delivery.apk'),
+                  mode: LaunchMode.externalApplication,
+                ),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1B5E20), Color(0xFF2E7D32)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.android, color: Colors.white, size: 28),
+                    const SizedBox(width: 12),
+                    const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Download Android App',
+                          style: TextStyle(color: Colors.white,
+                              fontWeight: FontWeight.bold, fontSize: 14)),
+                      Text('Better experience · works offline',
+                          style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    ])),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
+                      ),
+                      child: const Text('Download',
+                          style: TextStyle(color: Colors.white,
+                              fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ]),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 24),
           ]),
         ),
       ),

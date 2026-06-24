@@ -128,4 +128,14 @@ class Endpoints {
   static const adminSalesReport = '/api/admin/sales-report';
   static const adminBroadcast = '/api/admin/broadcast';
   static const adminDueReminders = '/api/admin/due-reminders';
+
+  // Customer tiers
+  static const adminTiers = '/api/admin/tiers';
+  static String adminTier(int id) => '/api/admin/tiers/$id';
+  static String adminAssignCustomerTier(int id) => '/api/admin/customers/$id/tier';
+  static String adminUpdateCustomer(int id) => '/api/admin/users/$id';
+  static String adminCustomerWalletHistory(int id) => '/api/admin/users/$id/wallet-history';
+  static const adminWalletAudit = '/api/admin/wallet-audit';
+  static const registerFcmToken = '/api/auth/fcm-token';
+  static const publicTiers = '/api/tiers';
 }

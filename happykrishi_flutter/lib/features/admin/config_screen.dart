@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/utils/error_handler.dart';
 
 final configProvider = FutureProvider.autoDispose<Map<String, String>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -39,6 +41,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
     'min_order_amount': 'Min Order Amount — Delivery (₹)',
     'min_pickup_order_amount': 'Min Order Amount — Pickup (₹)',
     'min_wallet_balance': 'Min Wallet Balance (₹)',
+    'max_wallet_negative_limit': 'Max Wallet Negative Limit (₹)',
     'geofence_radius_m': 'Geofence Radius (m)',
     'password_change_fee': 'Password Change Fee (₹)',
     'farm_name': 'Farm Name',
@@ -58,7 +61,16 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
   Widget build(BuildContext context) {
     final config = ref.watch(configProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('App Config')),
+      appBar: AppBar(
+        title: const Text('App Config'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
+        ],
+      ),
       body: config.when(
         data: (cfg) {
           for (final k in _labels.keys) {
@@ -73,10 +85,12 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
             _selectedSalesmanId = int.tryParse(cfg['default_salesman_id']!);
           }
 
-          return ListView(padding: const EdgeInsets.all(16), children: [
+          return RefreshIndicator(
+            onRefresh: () async => ref.invalidate(configProvider),
+            child: ListView(padding: const EdgeInsets.all(16), children: [
             _configSection('Delivery Rules', Icons.local_shipping, Colors.orange, [
               'free_delivery_above', 'base_delivery_charge', 'delivery_charge_per_km',
-              'min_order_amount', 'min_pickup_order_amount', 'min_wallet_balance', 'geofence_radius_m',
+              'min_order_amount', 'min_pickup_order_amount', 'min_wallet_balance', 'max_wallet_negative_limit', 'geofence_radius_m',
             ]),
             const SizedBox(height: 16),
             _configSection('Fees', Icons.currency_rupee, Colors.red, ['password_change_fee']),
@@ -98,10 +112,11 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
                   : const Text('Save Config'),
             ),
             const SizedBox(height: 24),
-          ]);
+          ]),
+          );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (e, _) { logError('admin-config', e); return Center(child: Text(friendlyError(e))); },
       ),
     );
   }
@@ -143,8 +158,8 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
               onChanged: (v) => setState(() => _selectedSalesmanId = v),
             ),
             loading: () => const LinearProgressIndicator(),
-            error: (e, _) => Text('Could not load salesmen: $e',
-                style: const TextStyle(color: Colors.red, fontSize: 12)),
+            error: (e, _) { logError('admin-config', e); return Text(friendlyError(e),
+                style: const TextStyle(color: Colors.red, fontSize: 12)); },
           ),
         ]),
       ),
@@ -253,7 +268,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
     final label = _labels[key] ?? key;
     const numericKeys = {
       'free_delivery_above', 'base_delivery_charge', 'delivery_charge_per_km',
-      'min_order_amount', 'min_pickup_order_amount', 'min_wallet_balance', 'geofence_radius_m', 'password_change_fee',
+      'min_order_amount', 'min_pickup_order_amount', 'min_wallet_balance', 'max_wallet_negative_limit', 'geofence_radius_m', 'password_change_fee',
     };
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),

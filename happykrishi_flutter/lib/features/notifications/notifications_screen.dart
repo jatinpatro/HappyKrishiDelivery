@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
+import '../../core/utils/error_handler.dart';
 
 final notificationsProvider = FutureProvider.autoDispose<List<AppNotification>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -18,7 +20,16 @@ class NotificationsScreen extends ConsumerWidget {
     final notifs = ref.watch(notificationsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Notifications')),
+      appBar: AppBar(
+        title: const Text('Notifications'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
+        ],
+      ),
       body: notifs.when(
         data: (list) => list.isEmpty
             ? const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -54,7 +65,10 @@ class NotificationsScreen extends ConsumerWidget {
                 ),
               ),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) {
+          logError('notifications', e);
+          return Center(child: Text(friendlyError(e)));
+        },
       ),
     );
   }

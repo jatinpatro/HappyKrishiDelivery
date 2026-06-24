@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const walletService = require('../services/walletService');
+const notificationService = require('../services/notificationService');
 
 function getWallet(req, res) {
   const user = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(req.user.id);
@@ -95,13 +96,20 @@ function requestTopup(req, res) {
     ? `UPI payment request submitted. UTR: ${transaction_ref}. Admin will verify and credit shortly.`
     : `Cash request submitted. ${collected_by} will hand it to admin. Wallet will be credited soon.`;
 
+  const requester = db.prepare('SELECT name FROM users WHERE id=?').get(req.user.id);
+  notificationService.sendToAdmins('Top-up Request 💰', `${requester?.name || 'Customer'} requested ₹${amount} top-up via ${method}`, { type: 'topup_request', request_id: String(result.lastInsertRowid) });
+
   res.status(201).json({ message: msg, request_id: result.lastInsertRowid });
 }
 
 function getMyTopupRequests(req, res) {
-  const requests = db.prepare(
-    'SELECT * FROM topup_requests WHERE user_id = ? ORDER BY created_at DESC'
-  ).all(req.user.id);
+  const requests = db.prepare(`
+    SELECT tr.*, s.name as collector_name
+    FROM topup_requests tr
+    LEFT JOIN users s ON s.id = CAST(tr.collected_by AS INTEGER)
+    WHERE tr.user_id = ?
+    ORDER BY tr.created_at DESC
+  `).all(req.user.id);
   res.json({ requests });
 }
 

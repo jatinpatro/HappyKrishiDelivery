@@ -5,6 +5,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
+import '../../core/utils/error_handler.dart';
 
 final productDetailProvider = FutureProvider.family.autoDispose<Product, int>((ref, id) async {
   final dio = ref.read(dioProvider);
@@ -29,11 +30,30 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     return Scaffold(
       body: productAsync.when(
         data: (product) {
-          if (_qty == 0) _qty = product.minQty;
+          // Drive qty from cart — always in sync with cart state
+          final cartItems = ref.watch(cartProvider);
+          final cartItem = cartItems.where((i) => i.product.id == product.id).firstOrNull;
+          final cartQty = cartItem?.qty ?? 0.0;
+          final inCart = cartItem != null;
+
+          // Local _qty for the quantity picker (used only when not yet in cart)
+          if (_qty == 0 && !inCart) {
+            _qty = product.minQty.clamp(0, product.stockQty);
+          }
+          // Once in cart, sync local picker to cart qty
+          final displayQty = inCart ? cartQty : _qty;
+
           return CustomScrollView(slivers: [
           SliverAppBar(
             expandedHeight: 280,
             pinned: true,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.home_outlined),
+                tooltip: 'Home',
+                onPressed: () => context.go('/home'),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: product.imageUrl != null
                   ? Image.network('${Endpoints.baseUrl}${product.imageUrl}', fit: BoxFit.cover)
@@ -63,31 +83,94 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                 Row(children: [
                   const Text('Quantity:', style: TextStyle(fontWeight: FontWeight.w600)),
                   const Spacer(),
-                  IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: _qty > product.minQty ? () => setState(() => _qty = (_qty - product.qtyStep).clamp(product.minQty, 9999)) : null),
-                  Text('${_qty.toStringAsFixed(2)} ${product.unit}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => setState(() => _qty = (_qty + product.qtyStep).clamp(product.minQty, 9999))),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    onPressed: displayQty > product.minQty ? () {
+                      final nq = (displayQty - product.qtyStep).clamp(product.minQty, product.stockQty);
+                      if (inCart) {
+                        ref.read(cartProvider.notifier).updateQty(product.id, nq);
+                      } else {
+                        setState(() => _qty = nq);
+                      }
+                    } : null,
+                  ),
+                  Text('${displayQty.toStringAsFixed(displayQty.truncateToDouble() == displayQty ? 0 : 2)} ${product.unit}',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: displayQty < product.stockQty ? () {
+                      final nq = (displayQty + product.qtyStep).clamp(product.minQty, product.stockQty);
+                      if (inCart) {
+                        ref.read(cartProvider.notifier).updateQty(product.id, nq);
+                      } else {
+                        setState(() => _qty = nq);
+                      }
+                    } : null,
+                  ),
                 ]),
                 const SizedBox(height: 8),
-                Text('Estimated: ₹${(product.pricePerUnit * _qty).toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold, fontSize: 16)),
+                Text('Estimated: ₹${(product.pricePerUnit * displayQty).toStringAsFixed(2)}',
+                    style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  onPressed: product.stockQty > 0 ? () {
-                    ref.read(cartProvider.notifier).addItem(product, _qty);
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('${product.name} added to cart'),
-                      action: SnackBarAction(label: 'View Cart', onPressed: () => context.push('/cart')),
-                    ));
-                  } : null,
-                  icon: const Icon(Icons.shopping_cart),
-                  label: const Text('Add to Cart'),
-                ),
+                if (product.stockQty <= 0)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)),
+                    child: const Center(child: Text('Out of Stock', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+                  )
+                else if (inCart)
+                  Row(children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.remove_shopping_cart_outlined, size: 18),
+                        label: const Text('Remove from Cart'),
+                        onPressed: () {
+                          ref.read(cartProvider.notifier).removeItem(product.id);
+                          setState(() => _qty = product.minQty.clamp(0, product.stockQty));
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.shopping_cart),
+                        label: const Text('View Cart'),
+                        onPressed: () => context.push('/cart'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ])
+                else
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.shopping_cart),
+                      label: const Text('Add to Cart'),
+                      onPressed: () {
+                        ref.read(cartProvider.notifier).addItem(product, _qty);
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('${product.name} added to cart'),
+                          action: SnackBarAction(label: 'View Cart', onPressed: () => context.push('/cart')),
+                        ));
+                      },
+                      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                    ),
+                  ),
               ]),
             ),
           ),
         ]);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) { logError('product-detail', e); return Center(child: Text(friendlyError(e))); },
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +10,7 @@ import 'dart:convert';
 import '../../core/api/endpoints.dart';
 import '../../core/api/dio_client.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/utils/error_handler.dart';
 
 // Farm location (matches .env)
 const _farmLat = 19.0746;
@@ -133,10 +135,17 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         title: const Text('Track Order'),
         backgroundColor: const Color(0xFF2E7D32),
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
+        ],
       ),
       body: orderAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) { logError('tracking', e); return Center(child: Text(friendlyError(e))); },
         data: (data) {
           final order    = data['order']    as Map<String, dynamic>;
           final delivery = data['delivery'] as Map<String, dynamic>?;

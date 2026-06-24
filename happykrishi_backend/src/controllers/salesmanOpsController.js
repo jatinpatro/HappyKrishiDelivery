@@ -44,8 +44,9 @@ function addCustomer(req, res) {
   }
 
   const result = db.prepare(
-    "INSERT INTO users (name, phone, password_hash, password_set, role) VALUES (?,?,?,?,?)"
-  ).run(name.trim(), phone, hash, hash ? 1 : 0, 'customer');
+    "INSERT INTO users (name, phone, password_hash, password_set, role, tier_id) VALUES (?,?,?,?,?,?)"
+  ).run(name.trim(), phone, hash, hash ? 1 : 0, 'customer',
+    db.prepare("SELECT id FROM customer_tiers WHERE name='Normal' LIMIT 1").get()?.id ?? null);
 
   const customer = db.prepare('SELECT id,name,phone,wallet_balance,role FROM users WHERE id=?')
     .get(result.lastInsertRowid);
@@ -73,10 +74,11 @@ function resetCustomerPasswordBySalesman(req, res) {
 
 // ── Salesman: approve a cash collection → credit customer wallet immediately ──
 function approveMyCollection(req, res) {
+  const salesmanId = req.user.id;
   const salesmanName = req.user.name;
   const request = db.prepare(
     "SELECT * FROM topup_requests WHERE id=? AND collected_by=? AND status='pending'"
-  ).get(req.params.id, salesmanName);
+  ).get(req.params.id, salesmanId);
 
   if (!request) {
     return res.status(404).json({ error: 'Request not found or not yours' });
@@ -113,13 +115,13 @@ function approveMyCollection(req, res) {
 
 // ── Salesman: list their pending (unapproved) collections ─────────────────────
 function myPendingCollections(req, res) {
-  const salesmanName = req.user.name;
+  const salesmanId = req.user.id;
   const pending = db.prepare(`
     SELECT tr.*, u.name as customer_name, u.phone as customer_phone
     FROM topup_requests tr JOIN users u ON u.id = tr.user_id
     WHERE tr.collected_by = ? AND tr.status = 'pending'
     ORDER BY tr.created_at DESC
-  `).all(salesmanName);
+  `).all(salesmanId);
 
   const total = pending.reduce((s, r) => s + r.amount, 0);
   res.json({ pending, total_pending: total, count: pending.length });
@@ -127,7 +129,7 @@ function myPendingCollections(req, res) {
 
 // ── Salesman: list their approved (unsettled) collections ─────────────────────
 function myApprovedCollections(req, res) {
-  const salesmanName = req.user.name;
+  const salesmanId = req.user.id;
 
   // Approved but not yet raised for settlement
   const unsettled = db.prepare(`
@@ -136,9 +138,11 @@ function myApprovedCollections(req, res) {
     WHERE tr.collected_by = ? AND tr.status = 'approved'
       AND (tr.settled_at IS NULL AND tr.settlement_id IS NULL)
     ORDER BY tr.resolved_at DESC
-  `).all(salesmanName);
+  `).all(salesmanId);
 
-  // My settlement requests (raised by me)
+  // My settlement requests (raised by me) — settlements still use salesman name
+  const salesman = db.prepare('SELECT name FROM users WHERE id=?').get(salesmanId);
+  const salesmanName = salesman?.name || '';
   const settlements = db.prepare(`
     SELECT ss.*, u.name as acknowledged_by_name
     FROM salesman_settlements ss
@@ -158,18 +162,32 @@ function myApprovedCollections(req, res) {
 
 // ── Salesman: raise a settlement request to admin ─────────────────────────────
 function raiseSettlementRequest(req, res) {
+  const salesmanId = req.user.id;
   const salesmanName = req.user.name;
-  const { note } = req.body;
+  const { note, request_ids } = req.body;
 
-  // All approved but unsettled collections for this salesman
-  const requests = db.prepare(`
-    SELECT id, amount FROM topup_requests
-    WHERE collected_by = ? AND status = 'approved'
-      AND settled_at IS NULL AND settlement_id IS NULL
-  `).all(salesmanName);
-
-  if (!requests.length) {
-    return res.status(400).json({ error: 'No unsettled approved collections to raise for settlement' });
+  // If specific request_ids provided, raise only those; otherwise raise all unsettled
+  let requests;
+  if (Array.isArray(request_ids) && request_ids.length > 0) {
+    const placeholders = request_ids.map(() => '?').join(',');
+    requests = db.prepare(`
+      SELECT id, amount FROM topup_requests
+      WHERE id IN (${placeholders}) AND collected_by = ? AND status = 'approved'
+        AND settled_at IS NULL AND settlement_id IS NULL
+    `).all(...request_ids, salesmanId);
+    if (!requests.length) {
+      return res.status(400).json({ error: 'No matching unsettled approved collections found' });
+    }
+  } else {
+    // All unsettled
+    requests = db.prepare(`
+      SELECT id, amount FROM topup_requests
+      WHERE collected_by = ? AND status = 'approved'
+        AND settled_at IS NULL AND settlement_id IS NULL
+    `).all(salesmanId);
+    if (!requests.length) {
+      return res.status(400).json({ error: 'No unsettled approved collections to raise for settlement' });
+    }
   }
 
   const totalAmount = requests.reduce((s, r) => s + r.amount, 0);

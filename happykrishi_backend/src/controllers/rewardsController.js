@@ -121,11 +121,15 @@ function calculateRewards(req, res) {
       if (rule.min_qty   > 0 && order.qty_purchased < rule.min_qty)   { skipped++; continue; }
       if (rule.min_spend > 0 && order.spend_amount  < rule.min_spend) { skipped++; continue; }
 
-      // Wallet ≥ ₹100 check
-      const user = db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(order.user_id);
-      if (!user || user.wallet_balance < 100) { skipped++; continue; }
+      // No wallet balance restriction — rewards based on product rule only
+      const user = db.prepare('SELECT wallet_balance, tier_id FROM users WHERE id=?').get(order.user_id);
+      if (!user) { skipped++; continue; }
 
-      const cashback = parseFloat((order.spend_amount * rule.cashback_percent / 100).toFixed(2));
+      const tierMult = user.tier_id
+        ? db.prepare('SELECT cashback_multiplier FROM customer_tiers WHERE id=?').get(user.tier_id)
+        : null;
+      const multiplier = tierMult?.cashback_multiplier ?? 1.0;
+      const cashback = parseFloat((order.spend_amount * rule.cashback_percent / 100 * multiplier).toFixed(2));
       if (cashback <= 0) continue;
 
       const result = db.prepare(`
@@ -169,10 +173,14 @@ function approvePayouts(req, res) {
 
   let totalApproved = 0;
   for (const payout of targets) {
-    // Fetch rule details for rich description
+    // Fetch rule and tier details for rich description
     const rule = db.prepare('SELECT name, cashback_percent, target_name FROM reward_rules WHERE id=?').get(payout.rule_id);
+    const userTier = db.prepare('SELECT ct.name as tier_name, ct.cashback_multiplier FROM users u LEFT JOIN customer_tiers ct ON ct.id = u.tier_id WHERE u.id=?').get(payout.user_id);
+    const multiplier = userTier?.cashback_multiplier ?? 1.0;
+    const tierPart = multiplier !== 1.0 && userTier?.tier_name ? ` × ${multiplier.toFixed(1)} (${userTier.tier_name} tier)` : '';
+
     const desc = rule
-      ? `${rule.cashback_percent}% cashback on ${rule.target_name} (${rule.name}) — ₹${payout.spend_amount.toFixed(0)} spent in ${payout.month}`
+      ? `${rule.cashback_percent}% cashback on ${rule.target_name}${tierPart} — ₹${payout.spend_amount.toFixed(0)} spent in ${payout.month} = ₹${payout.cashback_amount.toFixed(2)}`
       : `Cashback reward (${payout.month})`;
 
     const newBalance = walletService.credit(
@@ -182,7 +190,7 @@ function approvePayouts(req, res) {
     notificationService.sendToUser(
       payout.user_id,
       'Cashback Credited! 🎉',
-      `₹${payout.cashback_amount.toFixed(2)} cashback for ${rule ? rule.target_name : 'purchase'} (${rule ? rule.cashback_percent + '%' : ''}) in ${payout.month}. New balance: ₹${newBalance.toFixed(2)}`
+      `₹${payout.cashback_amount.toFixed(2)} cashback for ${rule ? rule.target_name : 'purchase'}${tierPart} in ${payout.month}. New balance: ₹${newBalance.toFixed(2)}`
     );
     totalApproved += payout.cashback_amount;
   }
@@ -213,10 +221,12 @@ function listPayouts(req, res) {
 
   const payouts = db.prepare(`
     SELECT rp.*, u.name as customer_name, u.phone as customer_phone,
-           rr.name as rule_name, rr.cashback_percent, rr.target_name, u.wallet_balance
+           rr.name as rule_name, rr.cashback_percent, rr.target_name, u.wallet_balance,
+           ct.name as tier_name, ct.cashback_multiplier as tier_multiplier
     FROM reward_payouts rp
     JOIN users u ON u.id = rp.user_id
     JOIN reward_rules rr ON rr.id = rp.rule_id
+    LEFT JOIN customer_tiers ct ON ct.id = u.tier_id
     WHERE ${where}
     ORDER BY rp.created_at DESC LIMIT ? OFFSET ?
   `).all(...params, parseInt(limit), offset);

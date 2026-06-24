@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
+import '../../core/utils/error_handler.dart';
 
 final adminProductsProvider =
     FutureProvider.autoDispose.family<List<Product>, String>((ref, key) async {
@@ -59,6 +61,11 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
       appBar: AppBar(
         title: const Text('Products'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
           IconButton(
             icon: const Icon(Icons.category_outlined),
             tooltip: 'Manage Categories',
@@ -265,7 +272,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
+            error: (e, _) { logError('admin-products', e); return Center(child: Text(friendlyError(e))); },
           ),
         ),
       ]),
@@ -399,8 +406,9 @@ class _ProductImageAvatarState extends ConsumerState<_ProductImageAvatar> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Image updated ✅'), backgroundColor: Color(0xFF2E7D32)));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+    } catch (e, st) {
+      logError('admin-products', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -497,8 +505,9 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Image uploaded ✅'), backgroundColor: Color(0xFF2E7D32)));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+    } catch (e, st) {
+      logError('admin-products', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _uploadingImage = false);
     }
@@ -537,8 +546,9 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
             content: Text(
                 widget.product == null ? 'Product added ✅' : 'Product updated ✅')));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } catch (e, st) {
+      logError('admin-products', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -769,8 +779,9 @@ class _CategoryManagerState extends ConsumerState<_CategoryManager> {
       setState(() => _nameCtrl.clear());
       ref.invalidate(categoriesAdminProvider);
       widget.onChanged();
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } catch (e, st) {
+      logError('admin-products', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -798,8 +809,9 @@ class _CategoryManagerState extends ConsumerState<_CategoryManager> {
       await dio.delete(Endpoints.deleteCategory(cat.id));
       ref.invalidate(categoriesAdminProvider);
       widget.onChanged();
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } catch (e, st) {
+      logError('admin-products', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -850,10 +862,10 @@ class _CategoryManagerState extends ConsumerState<_CategoryManager> {
               padding: EdgeInsets.all(24),
               child: Center(child: CircularProgressIndicator()),
             ),
-            error: (e, _) => Padding(
+            error: (e, _) { logError('admin-products', e); return Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
-            ),
+              child: Text(friendlyError(e), style: const TextStyle(color: Colors.red)),
+            ); },
             data: (cats) => cats.isEmpty
                 ? const Padding(
                     padding: EdgeInsets.all(24),
@@ -918,8 +930,9 @@ class _CategoryImageTileState extends ConsumerState<_CategoryImageTile> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Image updated ✅'), backgroundColor: Color(0xFF2E7D32)));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+    } catch (e, st) {
+      logError('admin-products', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) setState(() => _uploading = false);
     }

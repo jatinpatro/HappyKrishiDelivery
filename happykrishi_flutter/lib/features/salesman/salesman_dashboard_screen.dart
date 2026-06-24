@@ -7,6 +7,7 @@ import 'dart:async';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../admin/place_order_for_customer_screen.dart';
+import '../../core/utils/error_handler.dart';
 
 final salesmanDashboardProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -297,7 +298,7 @@ class _PendingOrdersTabState extends ConsumerState<_PendingOrdersTab> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) { logError('salesman', e); return Center(child: Text(friendlyError(e))); },
       )),
     ]);
   }
@@ -452,8 +453,9 @@ class _PendingOrderCardState extends ConsumerState<_PendingOrderCard> {
           backgroundColor: const Color(0xFF2E7D32),
         ));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } catch (e, st) {
+      logError('salesman', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       // Clean up controllers
       for (final c in weightCtrls.values) { c.dispose(); }
@@ -574,183 +576,238 @@ class _PendingOrderCardState extends ConsumerState<_PendingOrderCard> {
 
 // ── Tab 1: Collections (pending approval + summary) ───────────────────────────
 
-class _CollectionsTab extends ConsumerWidget {
+class _CollectionsTab extends ConsumerStatefulWidget {
   final AsyncValue<Map<String, dynamic>> dashboard;
   const _CollectionsTab({required this.dashboard});
+  @override
+  ConsumerState<_CollectionsTab> createState() => _CollectionsTabState();
+}
+
+class _CollectionsTabState extends ConsumerState<_CollectionsTab>
+    with SingleTickerProviderStateMixin {
+  late TabController _innerTabs;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    _innerTabs = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _innerTabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final pending  = ref.watch(salesmanPendingProvider);
     final approved = ref.watch(salesmanApprovedCollectionsProvider);
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(salesmanPendingProvider);
-        ref.invalidate(salesmanApprovedCollectionsProvider);
-        ref.invalidate(salesmanDashboardProvider);
-      },
-      child: ListView(padding: const EdgeInsets.all(16), children: [
+    // Compute badge counts from available data
+    final pendingCount = pending.value?['pending'] != null
+        ? (pending.value!['pending'] as List).length : 0;
+    final unsettledCount = approved.value?['unsettled'] != null
+        ? (approved.value!['unsettled'] as List).length : 0;
+    final settlementsCount = approved.value?['settlements'] != null
+        ? (approved.value!['settlements'] as List).length : 0;
 
-        // ── Summary cards ────────────────────────────────────────────────
-        dashboard.when(
-          data: (d) {
-            final p = d['pending_collections'] as Map<String, dynamic>;
-            final a = d['approved_collections'] as Map<String, dynamic>;
-            return Row(children: [
-              Expanded(child: _StatCard(
-                  label: 'Pending\n(awaiting your approval)', icon: Icons.hourglass_empty,
-                  value: '₹${(p['total'] as num).toStringAsFixed(0)}',
-                  count: p['count'] as int, color: Colors.orange)),
-              const SizedBox(width: 12),
-              Expanded(child: _StatCard(
-                  label: 'Approved\n(credited to wallets)', icon: Icons.check_circle_outline,
-                  value: '₹${(a['total'] as num).toStringAsFixed(0)}',
-                  count: a['count'] as int, color: const Color(0xFF2E7D32))),
-            ]);
-          },
-          loading: () => const SizedBox(height: 80, child: Center(child: CircularProgressIndicator())),
-          error: (_, st) => const SizedBox.shrink(),
-        ),
-        const SizedBox(height: 20),
-
-        // ── Raise settlement to admin ────────────────────────────────────
-        approved.when(
-          data: (d) {
-            final unsettled = (d['unsettled'] as List? ?? []).cast<Map<String, dynamic>>();
-            final unsettledTotal = (d['unsettled_total'] as num?)?.toDouble() ?? 0;
-            final settlements = (d['settlements'] as List? ?? []).cast<Map<String, dynamic>>();
-
-            return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              // Unsettled section
-              if (unsettled.isNotEmpty) ...[
-                const Text('Cash Ready to Settle',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(height: 4),
-                Text('₹${unsettledTotal.toStringAsFixed(0)} collected from ${unsettled.length} customers — not yet handed to admin.',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                const SizedBox(height: 12),
-                // Approved collections list
-                ...unsettled.map((r) => _ApprovedCollectionCard(request: r)),
-                const SizedBox(height: 12),
-                // Raise settlement button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.send_to_mobile),
-                    label: Text('Raise Settlement Request — ₹${unsettledTotal.toStringAsFixed(0)}'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1565C0),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () => _confirmRaiseSettlement(context, ref, unsettledTotal, unsettled.length),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'This notifies admin that you have physical cash ready to hand over.',
-                  style: TextStyle(color: Colors.grey, fontSize: 11),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-              ] else ...[
+    return Column(children: [
+      // Inner tab bar
+      Container(
+        color: Colors.white,
+        child: TabBar(
+          controller: _innerTabs,
+          labelColor: const Color(0xFF2E7D32),
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: const Color(0xFF2E7D32),
+          tabs: [
+            Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Approve', style: TextStyle(fontSize: 12)),
+              if (pendingCount > 0) ...[
+                const SizedBox(width: 4),
                 Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Row(children: [
-                    Icon(Icons.check_circle, color: Color(0xFF2E7D32)),
-                    SizedBox(width: 10),
-                    Text('All collections settled ✅',
-                        style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.w600)),
-                  ]),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(10)),
+                  child: Text('$pendingCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
-                const SizedBox(height: 20),
               ],
-
-              // Settlement history
-              if (settlements.isNotEmpty) ...[
-                const Text('Settlement History',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(height: 8),
-                ...settlements.map((s) => _SettlementRequestCard(s: s)),
+            ])),
+            Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Raise', style: TextStyle(fontSize: 12)),
+              if (unsettledCount > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(color: const Color(0xFF1565C0), borderRadius: BorderRadius.circular(10)),
+                  child: Text('$unsettledCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
               ],
-            ]);
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Text('Error: $e'),
+            ])),
+            Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Status', style: TextStyle(fontSize: 12)),
+              if (settlementsCount > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.circular(10)),
+                  child: Text('$settlementsCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ])),
+          ],
         ),
-        const SizedBox(height: 24),
+      ),
+      const Divider(height: 1),
+      Expanded(
+        child: TabBarView(
+          controller: _innerTabs,
+          children: [
 
-        // ── Pending collections to approve ───────────────────────────────
-        const Text('Pending — Tap to Approve',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-        const SizedBox(height: 4),
-        const Text('Once you approve, the amount is credited to the customer\'s wallet immediately.',
-            style: TextStyle(color: Colors.grey, fontSize: 12)),
-        const SizedBox(height: 12),
-
-        pending.when(
-          data: (d) {
-            final items = d['pending'] as List? ?? [];
-            if (items.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.check_circle_outline, size: 56, color: Colors.green),
-                  SizedBox(height: 8),
-                  Text('No pending collections', style: TextStyle(color: Colors.grey)),
-                ])),
-              );
-            }
-            return Column(children: items.map((r) => _PendingCollectionCard(
-              request: r,
-              onApprove: () async {
-                final id = r['id'] as int;
-                final amount = (r['amount'] as num).toDouble();
-                final customerName = r['customer_name'] as String? ?? 'customer';
-
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (dialogCtx) => AlertDialog(
-                    title: const Text('Approve Collection?'),
-                    content: Text(
-                        'Credit ₹${amount.toStringAsFixed(0)} to $customerName\'s wallet immediately?'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(dialogCtx, false),
-                          child: const Text('Cancel')),
-                      ElevatedButton(onPressed: () => Navigator.pop(dialogCtx, true),
-                          child: const Text('Approve & Credit')),
-                    ],
-                  ),
-                );
-                if (confirm != true) return;
-                try {
-                  final dio = ref.read(dioProvider);
-                  await dio.post(Endpoints.salesmanApproveCollection(id));
-                  ref.invalidate(salesmanPendingProvider);
-                  ref.invalidate(salesmanApprovedCollectionsProvider);
-                  ref.invalidate(salesmanDashboardProvider);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('₹${amount.toStringAsFixed(0)} credited to $customerName ✅'),
-                      backgroundColor: const Color(0xFF2E7D32),
-                    ));
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-                  }
-                }
+            // ── TAB 1: Approve customer top-up requests ──────────────────
+            RefreshIndicator(
+              onRefresh: () async {
+                ref.invalidate(salesmanPendingProvider);
+                ref.invalidate(salesmanDashboardProvider);
               },
-            )).toList());
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Text('Error: $e'),
+              child: ListView(padding: const EdgeInsets.all(16), children: [
+                // 4-state summary
+                ref.watch(salesmanDashboardProvider).when(
+                  data: (d) {
+                    final p    = d['pending_collections']  as Map<String, dynamic>;
+                    final a    = d['approved_collections'] as Map<String, dynamic>;
+                    final nr   = a['not_raised']   as Map<String, dynamic>? ?? {};
+                    final rp   = a['raised_pending'] as Map<String, dynamic>? ?? {};
+                    final st   = a['settled']       as Map<String, dynamic>? ?? {};
+                    return Column(children: [
+                      Row(children: [
+                        Expanded(child: _StatCard(
+                            label: 'Pending\nApproval', icon: Icons.hourglass_empty,
+                            value: '₹${(p['total'] as num).toStringAsFixed(0)}',
+                            count: p['count'] as int, color: Colors.orange)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _StatCard(
+                            label: 'Approved\nNot Raised', icon: Icons.account_balance_wallet_outlined,
+                            value: '₹${((nr['total'] as num?) ?? 0).toStringAsFixed(0)}',
+                            count: (nr['count'] as int?) ?? 0, color: const Color(0xFF1565C0))),
+                      ]),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        Expanded(child: _StatCard(
+                            label: 'Raised\nPending Admin', icon: Icons.pending_actions,
+                            value: '₹${((rp['total'] as num?) ?? 0).toStringAsFixed(0)}',
+                            count: (rp['count'] as int?) ?? 0, color: Colors.deepPurple)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _StatCard(
+                            label: 'Settled\nby Admin', icon: Icons.check_circle,
+                            value: '₹${((st['total'] as num?) ?? 0).toStringAsFixed(0)}',
+                            count: (st['count'] as int?) ?? 0, color: const Color(0xFF2E7D32))),
+                      ]),
+                    ]);
+                  },
+                  loading: () => const SizedBox(height: 80, child: Center(child: CircularProgressIndicator())),
+                  error: (_, st) => const SizedBox.shrink(),
+                ),
+                const SizedBox(height: 16),
+                const Text('Pending Customer Requests',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 4),
+                const Text('Approve to credit customer wallet immediately.',
+                    style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 12),
+                pending.when(
+                  data: (d) {
+                    final items = d['pending'] as List? ?? [];
+                    if (items.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.check_circle_outline, size: 56, color: Colors.green),
+                          SizedBox(height: 8),
+                          Text('No pending collections', style: TextStyle(color: Colors.grey)),
+                        ])),
+                      );
+                    }
+                    return Column(children: items.map((r) => _PendingCollectionCard(
+                      request: r,
+                      onApprove: () async {
+                        final id = r['id'] as int;
+                        final amount = (r['amount'] as num).toDouble();
+                        final customerName = r['customer_name'] as String? ?? 'customer';
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogCtx) => AlertDialog(
+                            title: const Text('Approve Collection?'),
+                            content: Text('Credit ₹${amount.toStringAsFixed(0)} to $customerName\'s wallet?'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Cancel')),
+                              ElevatedButton(onPressed: () => Navigator.pop(dialogCtx, true), child: const Text('Approve & Credit')),
+                            ],
+                          ),
+                        );
+                        if (confirm != true) return;
+                        try {
+                          await ref.read(dioProvider).post(Endpoints.salesmanApproveCollection(id));
+                          ref.invalidate(salesmanPendingProvider);
+                          ref.invalidate(salesmanApprovedCollectionsProvider);
+                          ref.invalidate(salesmanDashboardProvider);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('₹${amount.toStringAsFixed(0)} credited to $customerName ✅'),
+                              backgroundColor: const Color(0xFF2E7D32),
+                            ));
+                          }
+                        } catch (e, st) {
+                          logError('salesman', e, st);
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+                        }
+                      },
+                    )).toList());
+                  },
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (e, _) { logError('salesman-collections', e); return Text(friendlyError(e)); },
+                ),
+              ]),
+            ),
+
+            // ── TAB 2: Raise settlement to admin (with checkbox selection) ──
+            _RaiseSettlementTab(approved: approved),
+
+            // ── TAB 3: Settlement status (pending with admin / approved) ──
+            RefreshIndicator(
+              onRefresh: () async => ref.invalidate(salesmanApprovedCollectionsProvider),
+              child: approved.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Center(child: Text('Error: $e')),
+                data: (d) {
+                  final settlements = (d['settlements'] as List? ?? []).cast<Map<String, dynamic>>();
+                  if (settlements.isEmpty) {
+                    return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.history, size: 56, color: Colors.grey),
+                      SizedBox(height: 12),
+                      Text('No settlements raised yet', style: TextStyle(color: Colors.grey)),
+                    ]));
+                  }
+                  return ListView(padding: const EdgeInsets.all(16), children: [
+                    const Text('My Settlement Requests',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    const SizedBox(height: 4),
+                    const Text('Track whether admin has acknowledged your cash handovers.',
+                        style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(height: 12),
+                    ...settlements.map((s) => _SettlementRequestCard(s: s)),
+                  ]);
+                },
+              ),
+            ),
+
+          ],
         ),
-      ]),
-    );
+      ),
+    ]);
   }
 
   Future<void> _confirmRaiseSettlement(
@@ -811,6 +868,194 @@ class _CollectionsTab extends ConsumerWidget {
   }
 }
 
+// ── Raise Settlement Tab — checkbox selection ─────────────────────────────────
+
+class _RaiseSettlementTab extends ConsumerStatefulWidget {
+  final AsyncValue<Map<String, dynamic>> approved;
+  const _RaiseSettlementTab({required this.approved});
+  @override
+  ConsumerState<_RaiseSettlementTab> createState() => _RaiseSettlementTabState();
+}
+
+class _RaiseSettlementTabState extends ConsumerState<_RaiseSettlementTab> {
+  final Set<int> _selected = {};
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(salesmanApprovedCollectionsProvider),
+      child: widget.approved.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) { logError('salesman-collections', e); return Center(child: Text(friendlyError(e))); },
+        data: (d) {
+          final unsettled = (d['unsettled'] as List? ?? []).cast<Map<String, dynamic>>();
+
+          if (unsettled.isEmpty) {
+            return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 56),
+              SizedBox(height: 12),
+              Text('All collections settled ✅',
+                  style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.w600, fontSize: 15)),
+              SizedBox(height: 6),
+              Text('Nothing to raise for admin right now.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13)),
+            ]));
+          }
+
+          final validIds = unsettled.map((r) => r['id'] as int).toSet();
+          _selected.retainAll(validIds);
+
+          final selectedTotal = unsettled
+              .where((r) => _selected.contains(r['id'] as int))
+              .fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
+
+          return Column(children: [
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(children: [
+                Checkbox(
+                  value: _selected.length == unsettled.length
+                      ? true
+                      : _selected.isEmpty ? false : null,
+                  tristate: true,
+                  activeColor: const Color(0xFF1565C0),
+                  onChanged: (v) => setState(() {
+                    if (_selected.length == unsettled.length) _selected.clear();
+                    else _selected.addAll(validIds);
+                  }),
+                ),
+                const SizedBox(width: 4),
+                Text('${_selected.length}/${unsettled.length} selected',
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                if (_selected.isNotEmpty)
+                  Text('₹${selectedTotal.toStringAsFixed(0)}',
+                      style: const TextStyle(color: Color(0xFF1565C0),
+                          fontWeight: FontWeight.bold, fontSize: 13)),
+              ]),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
+                ...unsettled.map((r) {
+                  final id = r['id'] as int;
+                  final amount = (r['amount'] as num).toDouble();
+                  final customer = r['customer_name'] as String? ?? '';
+                  final date = (r['resolved_at'] ?? r['created_at'] as String).toString().substring(0, 10);
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    color: _selected.contains(id) ? const Color(0xFFE3F2FD) : null,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: BorderSide(
+                          color: _selected.contains(id)
+                              ? const Color(0xFF1565C0) : Colors.grey.shade200),
+                    ),
+                    child: CheckboxListTile(
+                      value: _selected.contains(id),
+                      activeColor: const Color(0xFF1565C0),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (v) => setState(() {
+                        if (v == true) _selected.add(id); else _selected.remove(id);
+                      }),
+                      title: Text('₹${amount.toStringAsFixed(0)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      subtitle: Text('$customer  •  $date',
+                          style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    ),
+                  );
+                }),
+              ]),
+            ),
+            if (_selected.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 8, offset: const Offset(0, -2))],
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.send_to_mobile),
+                    label: Text('Raise for ${_selected.length} item${_selected.length == 1 ? '' : 's'} — ₹${selectedTotal.toStringAsFixed(0)}'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1565C0),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () => _confirmRaise(context, selectedTotal, _selected.length, List.from(_selected)),
+                  ),
+                ),
+              ),
+          ]);
+        },
+      ),
+    );
+  }
+
+  Future<void> _confirmRaise(BuildContext context, double total, int count, List<int> ids) async {
+    final noteCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.send_to_mobile, color: Color(0xFF1565C0)),
+          SizedBox(width: 8),
+          Text('Raise Settlement'),
+        ]),
+        content: Column(mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$count collection${count == 1 ? '' : 's'} — ₹${total.toStringAsFixed(0)} total.'),
+          const SizedBox(height: 6),
+          const Text('Admin will be notified to collect this cash from you.',
+              style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: noteCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Note (optional)',
+              hintText: 'e.g. Will hand over tomorrow morning',
+              border: OutlineInputBorder(), isDense: true,
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1565C0)),
+            child: const Text('Send to Admin'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      final dio = ref.read(dioProvider);
+      await dio.post(Endpoints.salesmanRaiseSettlement, data: {
+        if (noteCtrl.text.isNotEmpty) 'note': noteCtrl.text.trim(),
+        'request_ids': ids,
+      });
+      ref.invalidate(salesmanApprovedCollectionsProvider);
+      ref.invalidate(salesmanDashboardProvider);
+      setState(() => _selected.clear());
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Settlement of ₹${total.toStringAsFixed(0)} raised ✅'),
+          backgroundColor: const Color(0xFF1565C0),
+        ));
+      }
+    } on DioException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e.response?.data['error'] ?? 'Failed to raise settlement')));
+      }
+    }
+  }
+}
+
 // ── Approved collection card (credited, pending settlement) ───────────────────
 
 class _ApprovedCollectionCard extends StatelessWidget {
@@ -851,10 +1096,17 @@ class _SettlementRequestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final amount      = (s['amount'] as num).toDouble();
-    final date        = (s['created_at'] as String).substring(0, 10);
+    final createdAt   = (s['created_at'] as String).length >= 16
+        ? (s['created_at'] as String).substring(0, 16).replaceAll('T', ' ')
+        : (s['created_at'] as String).substring(0, 10);
     final note        = s['note'] as String?;
     final ackedBy     = s['acknowledged_by_name'] as String?;
     final isAcked     = ackedBy != null;
+    // acknowledged time comes from salesman_settlements.settled_by being set
+    // we can use created_at as raised time; no separate acked timestamp stored
+    final ackedAt     = isAcked && (s['updated_at'] as String?) != null
+        ? (s['updated_at'] as String).substring(0, 16).replaceAll('T', ' ')
+        : null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -877,7 +1129,22 @@ class _SettlementRequestCard extends StatelessWidget {
                     color: isAcked ? Colors.green.shade700 : Colors.orange.shade800)),
             if (note != null && note.isNotEmpty)
               Text(note, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            Text(date, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            const SizedBox(height: 2),
+            Row(children: [
+              const Icon(Icons.schedule, size: 11, color: Colors.grey),
+              const SizedBox(width: 3),
+              Text('Raised: $createdAt',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            ]),
+            if (ackedAt != null) ...[
+              const SizedBox(height: 1),
+              Row(children: [
+                Icon(Icons.done_all, size: 11, color: Colors.green.shade600),
+                const SizedBox(width: 3),
+                Text('Acked: $ackedAt',
+                    style: TextStyle(fontSize: 11, color: Colors.green.shade700)),
+              ]),
+            ],
           ])),
         ]),
       ),
@@ -1091,7 +1358,7 @@ class _CustomersTabState extends ConsumerState<_CustomersTab> {
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) { logError('salesman-customers', e); return Center(child: Text(friendlyError(e))); },
         ),
       ),
     ]);
@@ -1467,7 +1734,7 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
       Expanded(
         child: historyAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) { logError('salesman-history', e); return Center(child: Text(friendlyError(e))); },
           data: (_) => RefreshIndicator(
             onRefresh: () async => ref.invalidate(salesmanHistoryProvider(_providerKey)),
             child: ListView(padding: const EdgeInsets.all(14), children: [
@@ -2160,29 +2427,152 @@ class _StatCard extends StatelessWidget {
 
 // ── Tab 5: Stock Management ───────────────────────────────────────────────────
 
-class _StockTab extends ConsumerWidget {
+class _StockTab extends ConsumerStatefulWidget {
   const _StockTab();
+  @override
+  ConsumerState<_StockTab> createState() => _StockTabState();
+}
+
+class _StockTabState extends ConsumerState<_StockTab> {
+  final _searchCtrl = TextEditingController();
+  String _search = '';
+  String? _categoryFilter;
+  String _stockFilter = 'all'; // all | low | out | active | inactive
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
     final productsAsync = ref.watch(salesmanProductsProvider);
 
     return productsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
-      data: (products) => RefreshIndicator(
-        onRefresh: () async => ref.invalidate(salesmanProductsProvider),
-        child: products.isEmpty
-            ? const Center(child: Text('No products', style: TextStyle(color: Colors.grey)))
-            : ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: products.length,
-                itemBuilder: (_, i) => _StockProductTile(
-                  product: products[i],
-                  onChanged: () => ref.invalidate(salesmanProductsProvider),
+      data: (all) {
+        // Derive categories
+        final cats = ({} ..addAll({for (final p in all) if (p['category_name'] != null) p['category_name'] as String: true})).keys.toList()..sort();
+
+        // Apply filters
+        final products = all.where((p) {
+          if (_search.isNotEmpty) {
+            final q = _search.toLowerCase();
+            if (!(p['name'] as String).toLowerCase().contains(q) &&
+                !(p['category_name']?.toString().toLowerCase().contains(q) ?? false)) return false;
+          }
+          if (_categoryFilter != null && p['category_name'] != _categoryFilter) return false;
+          final stock = (p['stock_qty'] as num).toDouble();
+          final low = (p['low_stock_threshold'] as num?)?.toDouble() ?? 5;
+          final active = (p['is_active'] as int? ?? 1) == 1;
+          switch (_stockFilter) {
+            case 'low':      return stock > 0 && stock <= low;
+            case 'out':      return stock <= 0;
+            case 'active':   return active;
+            case 'inactive': return !active;
+          }
+          return true;
+        }).toList();
+
+        final lowCount = all.where((p) {
+          final stock = (p['stock_qty'] as num).toDouble();
+          final low = (p['low_stock_threshold'] as num?)?.toDouble() ?? 5;
+          return stock <= low;
+        }).length;
+
+        return Column(children: [
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Column(children: [
+              // Search
+              TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() => _search = v.trim()),
+                decoration: InputDecoration(
+                  hintText: 'Search product or category…',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: _search.isNotEmpty
+                      ? IconButton(icon: const Icon(Icons.clear, size: 16),
+                          onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); })
+                      : null,
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 ),
               ),
-      ),
+              const SizedBox(height: 8),
+              // Stock status filter chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
+                  for (final entry in [
+                    ('all', 'All (${all.length})', Colors.grey),
+                    ('low', 'Low Stock ($lowCount)', Colors.orange),
+                    ('out', 'Out of Stock', Colors.red),
+                    ('active', 'Active', const Color(0xFF2E7D32)),
+                    ('inactive', 'Inactive', Colors.blueGrey),
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _SmallChip(
+                        label: entry.$2,
+                        selected: _stockFilter == entry.$1,
+                        color: entry.$3,
+                        onTap: () => setState(() => _stockFilter = entry.$1),
+                      ),
+                    ),
+                ]),
+              ),
+              if (cats.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                // Category filter chips
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _SmallChip(
+                        label: 'All Categories',
+                        selected: _categoryFilter == null,
+                        color: const Color(0xFF1565C0),
+                        onTap: () => setState(() => _categoryFilter = null),
+                      ),
+                    ),
+                    ...cats.map((cat) => Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _SmallChip(
+                        label: cat,
+                        selected: _categoryFilter == cat,
+                        color: const Color(0xFF1565C0),
+                        onTap: () => setState(() => _categoryFilter = _categoryFilter == cat ? null : cat),
+                      ),
+                    )),
+                  ]),
+                ),
+              ],
+              const SizedBox(height: 4),
+              Text('${products.length} product${products.length == 1 ? '' : 's'}',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            ]),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () async => ref.invalidate(salesmanProductsProvider),
+              child: products.isEmpty
+                  ? const Center(child: Text('No products match filters', style: TextStyle(color: Colors.grey)))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: products.length,
+                      itemBuilder: (_, i) => _StockProductTile(
+                        product: products[i],
+                        onChanged: () => ref.invalidate(salesmanProductsProvider),
+                      ),
+                    ),
+            ),
+          ),
+        ]);
+      },
     );
   }
 }
@@ -2271,58 +2661,177 @@ class _StockProductTileState extends ConsumerState<_StockProductTile> {
     final isActive = (p['is_active'] as int? ?? 1) == 1;
     final lowThreshold = (p['low_stock_threshold'] as num?)?.toDouble() ?? 5;
     final category = p['category_name'] as String?;
-    final isLow = stock <= lowThreshold;
+    final imageUrl = p['image_url'] as String?;
+    final isLow = stock > 0 && stock <= lowThreshold;
+    final isOut = stock <= 0;
+
+    Color statusColor = isOut ? Colors.red
+        : isLow ? Colors.orange
+        : const Color(0xFF2E7D32);
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: isActive ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
-          child: Text(
-            name.substring(0, 1).toUpperCase(),
-            style: TextStyle(
-              color: isActive ? const Color(0xFF2E7D32) : Colors.grey,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isOut ? Colors.red.shade200
+              : isLow ? Colors.orange.shade200
+              : Colors.grey.shade200,
+          width: isOut || isLow ? 1.5 : 1,
         ),
-        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Text('Stock: '),
-            Text(
-              '${stock.toStringAsFixed(stock.truncateToDouble() == stock ? 0 : 2)} $unit',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: isLow ? Colors.red : const Color(0xFF2E7D32),
-              ),
-            ),
-            if (isLow) ...[
-              const SizedBox(width: 6),
-              const Icon(Icons.warning_amber_rounded, size: 14, color: Colors.red),
-              const Text(' Low', style: TextStyle(fontSize: 11, color: Colors.red)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Product image / avatar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: imageUrl != null
+                ? Image.network(
+                    '${Endpoints.baseUrl}$imageUrl',
+                    width: 56, height: 56, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _avatarBox(name, isActive),
+                  )
+                : _avatarBox(name, isActive),
+          ),
+          const SizedBox(width: 12),
+
+          // Info
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(name,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+              if (!isActive)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text('Inactive', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                ),
+            ]),
+            if (category != null) ...[
+              const SizedBox(height: 2),
+              Text(category, style: const TextStyle(fontSize: 11, color: Colors.grey)),
             ],
-          ]),
-          if (category != null)
-            Text(category, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            const SizedBox(height: 6),
+            // Stock display
+            Row(children: [
+              Icon(isOut ? Icons.remove_circle_outline
+                  : isLow ? Icons.warning_amber_rounded
+                  : Icons.inventory_2_outlined,
+                  size: 14, color: statusColor),
+              const SizedBox(width: 4),
+              Text(
+                isOut ? 'Out of stock'
+                    : '${stock.toStringAsFixed(stock.truncateToDouble() == stock ? 0 : 1)} $unit',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: statusColor),
+              ),
+              if (isLow && !isOut) ...[
+                const SizedBox(width: 4),
+                Text('(low)', style: TextStyle(fontSize: 11, color: Colors.orange.shade700)),
+              ],
+            ]),
+            const SizedBox(height: 8),
+            // Quick +/- row + full edit
+            _updating
+                ? const SizedBox(height: 32, child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
+                : Row(children: [
+                    // Quick decrement
+                    _StepBtn(
+                      icon: Icons.remove,
+                      color: Colors.red.shade400,
+                      onTap: () => _quickUpdate(stock - 1),
+                    ),
+                    const SizedBox(width: 6),
+                    // Quick increment
+                    _StepBtn(
+                      icon: Icons.add,
+                      color: const Color(0xFF2E7D32),
+                      onTap: () => _quickUpdate(stock + 1),
+                    ),
+                    const SizedBox(width: 8),
+                    // Full edit button
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.edit_outlined, size: 14),
+                        label: const Text('Set Stock', style: TextStyle(fontSize: 12)),
+                        onPressed: _editStock,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          minimumSize: Size.zero,
+                          side: BorderSide(color: Colors.grey.shade400),
+                          foregroundColor: Colors.black87,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Active toggle
+                    Switch.adaptive(
+                      value: isActive,
+                      activeColor: const Color(0xFF2E7D32),
+                      onChanged: _toggleActive,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ]),
+          ])),
         ]),
-        trailing: _updating
-            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-            : Row(mainAxisSize: MainAxisSize.min, children: [
-                Switch(
-                  value: isActive,
-                  activeThumbColor: const Color(0xFF2E7D32),
-                  onChanged: _updating ? null : _toggleActive,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Update stock',
-                  onPressed: _updating ? null : _editStock,
-                ),
-              ]),
       ),
     );
   }
+
+  Widget _avatarBox(String name, bool isActive) => Container(
+    width: 56, height: 56,
+    decoration: BoxDecoration(
+      color: isActive ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Center(child: Text(name[0].toUpperCase(),
+        style: TextStyle(
+            fontSize: 22, fontWeight: FontWeight.bold,
+            color: isActive ? const Color(0xFF2E7D32) : Colors.grey))),
+  );
+
+  Future<void> _quickUpdate(double newQty) async {
+    if (newQty < 0) return;
+    setState(() => _updating = true);
+    try {
+      await ref.read(dioProvider).patch(
+        Endpoints.salesmanProductStock(widget.product['id'] as int),
+        data: {'stock_qty': newQty},
+      );
+      widget.onChanged();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+}
+
+class _StepBtn extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  const _StepBtn({required this.icon, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: 32, height: 32,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Icon(icon, size: 16, color: color),
+    ),
+  );
 }
 
 // ── Small filter chip (used in salesman customers tab) ────────────────────────

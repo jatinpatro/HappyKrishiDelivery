@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
+import '../../core/utils/error_handler.dart';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,16 @@ final _customerAddressesProvider =
       : '/api/admin/customers/$customerId/addresses';
   final res = await dio.get(endpoint);
   return (res.data['addresses'] as List).map((e) => Address.fromJson(e)).toList();
+});
+
+final _deliveryChargeProvider = FutureProvider.autoDispose
+    .family<double, ({int addressId, double subtotal})>((ref, args) async {
+  final dio = ref.read(dioProvider);
+  final res = await dio.get(Endpoints.deliveryCharge, queryParameters: {
+    'address_id': args.addressId,
+    'subtotal': args.subtotal,
+  });
+  return (res.data['delivery_charge'] as num).toDouble();
 });
 
 final _deliverySlotsForPlacingProvider =
@@ -122,6 +134,13 @@ class _PlaceOrderForCustomerScreenState
             : _step == 1
                 ? 'Add Products'
                 : 'Review & Place Order'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
+        ],
         leading: _step == 0
             ? null
             : IconButton(
@@ -336,7 +355,7 @@ class _CustomerStep extends ConsumerWidget {
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) { logError('admin-place-order', e); return Center(child: Text(friendlyError(e))); },
         ),
       ),
     ]);
@@ -356,17 +375,81 @@ class _ProductsStep extends ConsumerStatefulWidget {
 }
 
 class _ProductsStepState extends ConsumerState<_ProductsStep> {
+  final _searchCtrl = TextEditingController();
+  String _search = '';
+  String? _categoryFilter;
+
+  @override
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+
   @override
   Widget build(BuildContext context) {
     final products = ref.watch(_productsForOrderProvider);
     final cartCount = widget.cart.values.fold(0.0, (s, v) => s + v);
 
     return Column(children: [
+      // ── Search + category filter ─────────────────────────────────────────
+      Container(
+        color: Colors.white,
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+        child: Column(children: [
+          TextField(
+            controller: _searchCtrl,
+            onChanged: (v) => setState(() => _search = v.trim()),
+            decoration: InputDecoration(
+              hintText: 'Search products…',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              suffixIcon: _search.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 16),
+                      onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); })
+                  : null,
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            ),
+          ),
+          products.whenOrNull(data: (list) {
+            final cats = ({} ..addAll({for (final p in list) if (p.categoryName != null) p.categoryName!: true})).keys.toList()..sort();
+            if (cats.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
+                  _CatChip('All', _categoryFilter == null, () => setState(() => _categoryFilter = null)),
+                  ...cats.map((c) => Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: _CatChip(c, _categoryFilter == c,
+                        () => setState(() => _categoryFilter = _categoryFilter == c ? null : c)),
+                  )),
+                ]),
+              ),
+            );
+          }) ?? const SizedBox.shrink(),
+        ]),
+      ),
+      const Divider(height: 1),
+
       Expanded(
         child: products.when(
           data: (list) {
             widget.onProductsLoaded(list);
-            final active = list.where((p) => p.isActive && p.stockQty > 0).toList();
+            final active = list.where((p) {
+              if (!p.isActive || p.stockQty <= 0) return false;
+              if (_categoryFilter != null && p.categoryName != _categoryFilter) return false;
+              if (_search.isNotEmpty) {
+                final q = _search.toLowerCase();
+                return p.name.toLowerCase().contains(q) ||
+                    (p.categoryName?.toLowerCase().contains(q) ?? false);
+              }
+              return true;
+            }).toList();
+
+            if (active.isEmpty) {
+              return const Center(child: Text('No products match', style: TextStyle(color: Colors.grey)));
+            }
+
             return ListView.builder(
               padding: const EdgeInsets.all(12),
               itemCount: active.length,
@@ -406,7 +489,7 @@ class _ProductsStepState extends ConsumerState<_ProductsStep> {
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) { logError('admin-place-order', e); return Center(child: Text(friendlyError(e))); },
         ),
       ),
       SafeArea(
@@ -554,8 +637,16 @@ class _CheckoutStep extends ConsumerWidget {
     final walletBalance = ((customer!['wallet_balance'] as num?) ?? 0).toDouble();
     final addresses = ref.watch(_customerAddressesProvider(customerId));
     final slots = ref.watch(_deliverySlotsForPlacingProvider(orderType));
-    final effectiveDeliveryCharge = (orderType == 'pickup' || freeDelivery) ? 0.0 : null;
-    final totalForWalletCheck = subtotal + (effectiveDeliveryCharge ?? 0);
+
+    // Fetch actual delivery charge when address is selected
+    final deliveryChargeAsync = (orderType == 'delivery' && selectedAddressId != null && !freeDelivery)
+        ? ref.watch(_deliveryChargeProvider((addressId: selectedAddressId!, subtotal: subtotal)))
+        : null;
+    final fetchedCharge = deliveryChargeAsync?.valueOrNull;
+    final effectiveDeliveryCharge = (orderType == 'pickup' || freeDelivery)
+        ? 0.0
+        : (fetchedCharge ?? 0.0);
+    final totalForWalletCheck = subtotal + effectiveDeliveryCharge;
     final walletAlreadyNegative = walletBalance < 0;
     final canPlace = !placing &&
         selectedSlotId != null &&
@@ -700,7 +791,7 @@ class _CheckoutStep extends ConsumerWidget {
           );
         }).toList()),
         loading: () => const LinearProgressIndicator(),
-        error: (e, _) => Text('$e'),
+        error: (e, _) { logError('admin-place-order', e); return Text(friendlyError(e)); },
       ),
       const SizedBox(height: 14),
 
@@ -730,7 +821,21 @@ class _CheckoutStep extends ConsumerWidget {
               const Text('Delivery Charge', style: TextStyle(fontSize: 13)),
               freeDelivery
                   ? const Text('FREE ✅', style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600, fontSize: 13))
-                  : const Text('Auto-calculated', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  : selectedAddressId == null
+                      ? const Text('Select address to calculate', style: TextStyle(color: Colors.grey, fontSize: 12))
+                      : deliveryChargeAsync == null
+                          ? const Text('—', style: TextStyle(color: Colors.grey, fontSize: 12))
+                          : deliveryChargeAsync.when(
+                              data: (charge) => Text(
+                                charge == 0 ? 'FREE ✅' : '₹${charge.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 13,
+                                  color: charge == 0 ? Colors.green : Colors.black87,
+                                ),
+                              ),
+                              loading: () => const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                              error: (_, _) => const Text('—', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            ),
             ]),
             const SizedBox(height: 6),
             // Free delivery toggle
@@ -767,9 +872,9 @@ class _CheckoutStep extends ConsumerWidget {
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             const Text('Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             Text(
-              orderType == 'delivery' && !freeDelivery
+              orderType == 'delivery' && !freeDelivery && selectedAddressId != null && fetchedCharge == null
                   ? '₹${subtotal.toStringAsFixed(2)} + delivery'
-                  : '₹${subtotal.toStringAsFixed(2)}',
+                  : '₹${(subtotal + effectiveDeliveryCharge).toStringAsFixed(2)}',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF2E7D32)),
             ),
           ]),
@@ -859,4 +964,33 @@ class _CheckoutStep extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _CatChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _CatChip(this.label, this.selected, this.onTap);
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF2E7D32) : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+            ),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: selected ? Colors.white : Colors.black87,
+              )),
+        ),
+      );
 }

@@ -9,6 +9,7 @@ import '../../core/models/models.dart';
 import '../../core/services/pdf_service.dart';
 import '../orders/order_list_screen.dart';
 import '../wallet/wallet_screen.dart';
+import '../../core/utils/error_handler.dart';
 
 final orderDetailProvider = FutureProvider.family.autoDispose<Map<String, dynamic>, int>((ref, id) async {
   final dio = ref.read(dioProvider);
@@ -46,6 +47,19 @@ class OrderDetailScreen extends ConsumerWidget {
           },
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () {
+              if (isAdmin) {
+                context.go('/admin/dashboard');
+              } else if (isSalesman) {
+                context.go('/salesman/dashboard');
+              } else {
+                context.go('/home');
+              }
+            },
+          ),
           data.when(
             data: (d) {
               final order = Order.fromJson(d['order']);
@@ -79,7 +93,9 @@ class OrderDetailScreen extends ConsumerWidget {
           final salesmanCanAct = isSalesman &&
               (order.status == 'assigned' || order.status == 'dispatched' || order.status == 'picked');
 
-          return ListView(padding: const EdgeInsets.all(16), children: [
+          return RefreshIndicator(
+            onRefresh: () async => ref.invalidate(orderDetailProvider(orderId)),
+            child: ListView(padding: const EdgeInsets.all(16), physics: const AlwaysScrollableScrollPhysics(), children: [
             _StatusCard(order: order, delivery: delivery),
             const SizedBox(height: 16),
             if (salesmanCanAct)
@@ -111,10 +127,14 @@ class OrderDetailScreen extends ConsumerWidget {
                 label: const Text('Reorder'),
                 onPressed: () => _reorder(context, ref, order),
               ),
-          ]);
+          ]),
+          );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) {
+          logError('order-detail', e);
+          return Center(child: Text(friendlyError(e)));
+        },
       ),
     );
   }
@@ -148,8 +168,9 @@ class OrderDetailScreen extends ConsumerWidget {
           action: SnackBarAction(label: 'View Cart', onPressed: () => context.go('/cart')),
         ));
       }
-    } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } catch (e, st) {
+      logError('order-detail', e, st);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }

@@ -19,6 +19,11 @@ class CartScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('My Cart'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
           if (cart.isNotEmpty)
             TextButton(
               onPressed: () => ref.read(cartProvider.notifier).clear(),
@@ -88,10 +93,14 @@ class _CartItemTile extends ConsumerWidget {
               Text(item.qty.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.bold)),
               IconButton(
                 icon: const Icon(Icons.add_circle_outline, size: 20),
-                onPressed: () => ref.read(cartProvider.notifier).updateQty(p.id, item.qty + p.qtyStep),
+                onPressed: item.qty + p.qtyStep > p.stockQty
+                    ? null
+                    : () => ref.read(cartProvider.notifier).updateQty(p.id, item.qty + p.qtyStep),
               ),
             ]),
             Text('₹${(p.pricePerUnit * item.qty).toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold)),
+            if (item.qty >= p.stockQty)
+              Text('Max stock', style: TextStyle(fontSize: 9, color: Colors.orange.shade700)),
           ]),
         ]),
       ),

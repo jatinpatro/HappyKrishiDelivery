@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -7,12 +8,25 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../features/info/app_info_screen.dart';
 import 'wallet_screen.dart';
+import '../../core/utils/error_handler.dart';
 
 final myTopupRequestsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final dio = ref.read(dioProvider);
   final res = await dio.get(Endpoints.myTopupRequests);
   return List<Map<String, dynamic>>.from(res.data['requests']);
+});
+
+// Loads active salesmen with id+name from /api/salesman/list
+final activeSalesmenProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final dio = ref.read(dioProvider);
+  try {
+    final res = await dio.get(Endpoints.salesmanList);
+    return List<Map<String, dynamic>>.from(res.data['salesmen'] ?? []);
+  } catch (_) {
+    return [];
+  }
 });
 
 class TopupScreen extends ConsumerStatefulWidget {
@@ -25,6 +39,7 @@ class _TopupScreenState extends ConsumerState<TopupScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabs;
   bool _loading = false;
+  bool _historyExpanded = false;
 
   @override
   void initState() {
@@ -76,48 +91,61 @@ class _TopupScreenState extends ConsumerState<TopupScreen>
           ),
         ),
 
-        // History
+        // History — collapsible panel
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
             boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, -2))],
           ),
           child: Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Row(children: [
-                const Text('My Requests', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                const SizedBox(width: 8),
-                requests.when(
-                  data: (list) {
-                    final pending = list.where((r) => r['status'] == 'pending').length;
-                    return pending > 0
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(12)),
-                            child: Text('$pending pending',
-                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                          )
-                        : const SizedBox.shrink();
-                  },
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, _) => const SizedBox.shrink(),
-                ),
-              ]),
-            ),
-            SizedBox(
-              height: 180,
-              child: requests.when(
-                data: (list) => list.isEmpty
-                    ? const Center(child: Text('No requests yet', style: TextStyle(color: Colors.grey)))
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                        itemCount: list.length,
-                        itemBuilder: (_, i) => _RequestTile(request: list[i]),
-                      ),
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('Error: $e')),
+            // Toggle header
+            InkWell(
+              onTap: () => setState(() => _historyExpanded = !_historyExpanded),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                child: Row(children: [
+                  const Text('My Requests', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(width: 8),
+                  requests.when(
+                    data: (list) {
+                      final pending = list.where((r) => r['status'] == 'pending').length;
+                      return pending > 0
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(12)),
+                              child: Text('$pending pending',
+                                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                            )
+                          : const SizedBox.shrink();
+                    },
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
+                  ),
+                  const Spacer(),
+                  Icon(_historyExpanded ? Icons.expand_more : Icons.expand_less,
+                      color: Colors.grey, size: 20),
+                ]),
               ),
+            ),
+            // Expandable list
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              child: _historyExpanded
+                  ? SizedBox(
+                      height: 220,
+                      child: requests.when(
+                        data: (list) => list.isEmpty
+                            ? const Center(child: Text('No requests yet', style: TextStyle(color: Colors.grey)))
+                            : ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                                itemCount: list.length,
+                                itemBuilder: (_, i) => _RequestTile(request: list[i]),
+                              ),
+                        loading: () => const Center(child: CircularProgressIndicator()),
+                        error: (e, _) { logError('topup', e); return Center(child: Text(friendlyError(e))); },
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ]),
         ),
@@ -170,9 +198,12 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
       '&cu=INR'
       '&tn=${Uri.encodeComponent('HappyKrishi Wallet Topup')}',
     );
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    try {
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        _show('No UPI app found. Please pay using the QR or UPI ID above.');
+      }
+    } catch (_) {
       _show('No UPI app found. Please pay using the QR or UPI ID above.');
     }
   }
@@ -252,12 +283,12 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
                       borderRadius: BorderRadius.circular(13),
                       child: Image.network(
                         qrUrl.startsWith('http') ? qrUrl : '${Endpoints.baseUrl}$qrUrl',
-                        width: 200, height: 200, fit: BoxFit.cover,
+                        width: 220, height: 220, fit: BoxFit.contain,
                         loadingBuilder: (_, child, chunk) => chunk == null
                             ? child
-                            : const SizedBox(width: 200, height: 200,
+                            : const SizedBox(width: 220, height: 220,
                                 child: Center(child: CircularProgressIndicator())),
-                        errorBuilder: (context3, url2, err2) => const SizedBox(width: 200, height: 200,
+                        errorBuilder: (context3, url2, err2) => const SizedBox(width: 220, height: 220,
                             child: Center(child: Icon(Icons.qr_code, size: 80, color: Colors.grey))),
                       ),
                     ),
@@ -311,8 +342,8 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
                 const Center(child: Text('Tap to copy UPI ID', style: TextStyle(fontSize: 11, color: Colors.grey))),
               const SizedBox(height: 16),
 
-              // Open UPI app directly
-              if (upiId.isNotEmpty)
+              // Open UPI app — mobile only (upi:// scheme not supported in browsers)
+              if (upiId.isNotEmpty && !kIsWeb) ...[
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -326,15 +357,47 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 10),
-              if (upiId.isNotEmpty)
+                const SizedBox(height: 10),
                 const Center(
                   child: Text(
                     'Opens GPay, PhonePe, Paytm or any UPI app',
                     style: TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
+
+              // Web: prompt to install app for direct UPI
+              if (upiId.isNotEmpty && kIsWeb) ...[
+                GestureDetector(
+                  onTap: () => launchUrl(
+                    Uri.parse('https://delivery.happykrishi.com/happykrishi-delivery.apk'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.deepPurple.shade200),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.android, color: Colors.deepPurple.shade600, size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Install the App to pay via UPI directly',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
+                                color: Colors.deepPurple.shade700)),
+                        Text('Tap to download — opens GPay, PhonePe, Paytm automatically',
+                            style: TextStyle(fontSize: 11, color: Colors.deepPurple.shade400)),
+                      ])),
+                      Icon(Icons.download_outlined, color: Colors.deepPurple.shade600, size: 20),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               SizedBox(
                 width: double.infinity,
@@ -413,7 +476,7 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) { logError('topup', e); return Center(child: Text(friendlyError(e))); },
     );
   }
 }
@@ -430,7 +493,7 @@ class _CashTabView extends ConsumerStatefulWidget {
 
 class _CashTabViewState extends ConsumerState<_CashTabView> {
   final _amountCtrl = TextEditingController();
-  String? _selectedSalesman;
+  Map<String, dynamic>? _selectedSalesman; // {id, name, phone}
   final _amounts = [100, 200, 500, 1000];
 
   @override
@@ -450,11 +513,11 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
       await dio.post(Endpoints.topupRequest, data: {
         'amount': v,
         'payment_method': 'cash',
-        'collected_by': _selectedSalesman,
+        'collected_by': _selectedSalesman!['id'],  // send salesman user ID
       });
       ref.invalidate(myTopupRequestsProvider);
       ref.invalidate(walletProvider);
-      final submittedVia = _selectedSalesman;
+      final submittedVia = _selectedSalesman!['name'] as String;
       _amountCtrl.clear();
       setState(() => _selectedSalesman = null);
       if (mounted) {
@@ -475,11 +538,13 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
   @override
   Widget build(BuildContext context) {
     final appInfo = ref.watch(appInfoProvider);
+    final salesmenAsync = ref.watch(activeSalesmenProvider);
 
     return appInfo.when(
       data: (info) {
         final payment = info['payment'] as Map<String, dynamic>? ?? {};
-        final salesmen = (payment['salesmen'] as List?)?.cast<String>() ?? [];
+        // Use structured salesman list (id + name) from /api/salesman/list
+        final salesmen = salesmenAsync.value ?? [];
         final cashAddress = payment['cash_payment_address'] as String? ?? '';
 
         return SingleChildScrollView(
@@ -504,10 +569,11 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
 
             Wrap(
               spacing: 10, runSpacing: 10,
-              children: salesmen.map((name) {
-                final selected = _selectedSalesman == name;
+              children: salesmen.map((s) {
+                final name = s['name'] as String? ?? '';
+                final selected = _selectedSalesman != null && _selectedSalesman!['id'] == s['id'];
                 return GestureDetector(
-                  onTap: () => setState(() => _selectedSalesman = name),
+                  onTap: () => setState(() => _selectedSalesman = s),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -525,7 +591,7 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
                       CircleAvatar(
                         radius: 16,
                         backgroundColor: selected ? Colors.white24 : Colors.grey.shade100,
-                        child: Text(name.substring(0, 1).toUpperCase(),
+                        child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: selected ? Colors.white : const Color(0xFF2E7D32),
@@ -588,7 +654,7 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                     : const Icon(Icons.send),
                 label: Text(_selectedSalesman != null
-                    ? 'Submit Cash via $_selectedSalesman'
+                    ? 'Submit Cash via ${_selectedSalesman!['name']}'
                     : 'Submit Cash Request'),
                 onPressed: (widget.loading || _selectedSalesman == null) ? null : _submit,
                 style: ElevatedButton.styleFrom(
@@ -655,8 +721,8 @@ class _RequestTile extends StatelessWidget {
     final amount = (request['amount'] as num).toDouble();
     final method = request['payment_method'] as String? ?? 'cash';
     final ref_ = request['transaction_ref'] as String?;
-    final collector = request['collected_by'] as String?;
-    final collectorDisplay = (collector != null && collector.isNotEmpty && collector != 'null')
+    final collector = (request['collector_name'] ?? request['collected_by'])?.toString();
+    final collectorDisplay = (collector != null && collector.isNotEmpty && collector != 'null' && collector != '0')
         ? collector
         : null;
     final createdAt = (request['created_at'] as String).substring(0, 10);

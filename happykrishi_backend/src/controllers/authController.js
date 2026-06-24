@@ -76,7 +76,8 @@ function verifyOtp(req, res) {
   const isNew = !user;
 
   if (!user) {
-    const result = db.prepare('INSERT INTO users (name, phone, role) VALUES (?,?,?)').run('User', phone, 'customer');
+    const result = db.prepare('INSERT INTO users (name, phone, role, tier_id) VALUES (?,?,?,?)')
+      .run('User', phone, 'customer', db.prepare("SELECT id FROM customer_tiers WHERE name='Normal' LIMIT 1").get()?.id ?? null);
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
   }
 
@@ -218,7 +219,10 @@ function getMe(req, res) {
 
 function safeUser(u) {
   const { password_hash, fcm_token, ...safe } = u;
-  return safe;
+  const tier = u.tier_id
+    ? db.prepare('SELECT name, color FROM customer_tiers WHERE id=?').get(u.tier_id)
+    : null;
+  return { ...safe, tier_name: tier?.name ?? null, tier_color: tier?.color ?? null };
 }
 function updateProfile(req, res) {
   const { name, email } = req.body;
@@ -281,10 +285,11 @@ function emailSignup(req, res) {
   const finalPhone = phone ? phone.trim() : `email_${Date.now()}`;
 
   const result = db.prepare(
-    `INSERT INTO users (name, phone, email, password_hash, password_set, role, gender, birthdate)
-     VALUES (?,?,?,?,1,'customer',?,?)`
+    `INSERT INTO users (name, phone, email, password_hash, password_set, role, gender, birthdate, tier_id)
+     VALUES (?,?,?,?,1,'customer',?,?,?)`
   ).run(name.trim(), finalPhone, normalizedEmail, hash,
-        gender || null, birthdate || null);
+        gender || null, birthdate || null,
+        db.prepare("SELECT id FROM customer_tiers WHERE name='Normal' LIMIT 1").get()?.id ?? null);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
   const token = issueToken(user);
@@ -316,9 +321,17 @@ function emailLogin(req, res) {
   res.json({ token, user: safeUser(user) });
 }
 
+function saveFcmToken(req, res) {
+  const { fcm_token } = req.body;
+  if (!fcm_token) return res.status(400).json({ error: 'fcm_token required' });
+  db.prepare('UPDATE users SET fcm_token=? WHERE id=?').run(fcm_token, req.user.id);
+  res.json({ message: 'FCM token saved' });
+}
+
 module.exports = {
   sendOtp, verifyOtp, phoneLogin, setPassword,
   requestChangePasswordOtp, changePassword,
+  saveFcmToken,
   register, adminLogin, getMe, updateProfile,
   emailSignup, emailLogin,
 };

@@ -7,6 +7,8 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
+import '../../core/utils/error_handler.dart';
+import '../admin/admin_tiers_screen.dart' show tierColor;
 
 final categoriesProvider = FutureProvider.autoDispose<List<Category>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -20,11 +22,36 @@ final featuredProductsProvider = FutureProvider.autoDispose<List<Product>>((ref)
   return (res.data['products'] as List).map((e) => Product.fromJson(e)).toList();
 });
 
-class HomeScreen extends ConsumerWidget {
+/// Fetches fresh user profile including tier info from backend
+final customerProfileProvider = FutureProvider<AppUser?>((ref) async {
+  try {
+    final dio = ref.read(dioProvider);
+    final res = await dio.get(Endpoints.me);
+    return AppUser.fromJson(res.data['user']);
+  } catch (_) {
+    return null;
+  }
+});
+
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Refresh user silently on open so tier/balance stays current
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(authStateProvider.notifier).refreshUser();
+    });
+  }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    // authStateProvider.user already has tierName — set by _tryRestore via /me
     final user = ref.watch(authStateProvider).user;
     final categories = ref.watch(categoriesProvider);
     final featured = ref.watch(featuredProductsProvider);
@@ -104,6 +131,13 @@ class HomeScreen extends ConsumerWidget {
                   child: _WalletBanner(user: user),
                 ),
 
+                // ── Tier card ──────────────────────────────────────────────
+                if (user != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: _TierCard(user: user!),
+                  ),
+
                 // ── Categories ─────────────────────────────────────────────
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
@@ -127,9 +161,12 @@ class HomeScreen extends ConsumerWidget {
                 categories.when(
                   loading: () => const SizedBox(
                       height: 120, child: Center(child: CircularProgressIndicator())),
-                  error: (e, _) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text('Error: $e', style: const TextStyle(color: Colors.red))),
+                  error: (e, _) {
+                    logError('home', e);
+                    return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(friendlyError(e), style: const TextStyle(color: Colors.red)));
+                  },
                   data: (cats) => cats.isEmpty
                       ? const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 16),
@@ -174,9 +211,12 @@ class HomeScreen extends ConsumerWidget {
                 featured.when(
                   loading: () => const SizedBox(
                       height: 200, child: Center(child: CircularProgressIndicator())),
-                  error: (e, _) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text('Error: $e')),
+                  error: (e, _) {
+                    logError('home', e);
+                    return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(friendlyError(e)));
+                  },
                   data: (prods) => prods.isEmpty
                       ? const Padding(
                           padding: EdgeInsets.all(24),
@@ -219,6 +259,8 @@ class _HomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+    final firstName = user?.name.split(' ').first ?? 'there';
+    final tierName = user?.tierName;
 
     return Container(
       decoration: const BoxDecoration(
@@ -230,28 +272,53 @@ class _HomeHeader extends StatelessWidget {
       ),
       padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Logo row
         Row(children: [
-          Container(
-            width: 38, height: 38,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
+          Image.asset('assets/images/logo.png', height: 38, width: 38, fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Container(
+              width: 38, height: 38,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Center(child: Text('🌿', style: TextStyle(fontSize: 20))),
             ),
-            child: const Center(child: Text('🌿', style: TextStyle(fontSize: 20))),
           ),
           const SizedBox(width: 10),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('HappyKrishi',
-                style: const TextStyle(color: Colors.white, fontSize: 18,
+            const Text('HappyKrishi',
+                style: TextStyle(color: Colors.white, fontSize: 18,
                     fontWeight: FontWeight.bold, letterSpacing: 0.3)),
             Text('Farm Fresh Delivery',
                 style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11)),
           ]),
         ]),
         const SizedBox(height: 10),
-        Text('$greeting, ${user?.name.split(' ').first ?? 'there'} 👋',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.95),
-                fontSize: 14, fontWeight: FontWeight.w500)),
+        // Greeting + tier badge
+        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Text('$greeting, $firstName 👋',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.95),
+                  fontSize: 14, fontWeight: FontWeight.w500)),
+          if (tierName != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.6), width: 1),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.workspace_premium, size: 11, color: Colors.white),
+                const SizedBox(width: 3),
+                Text(tierName,
+                    style: const TextStyle(
+                        fontSize: 10, fontWeight: FontWeight.bold,
+                        color: Colors.white)),
+              ]),
+            ),
+          ],
+        ]),
       ]),
     );
   }
@@ -391,20 +458,17 @@ class _CategoryCard extends StatelessWidget {
 
 // ── Product card ──────────────────────────────────────────────────────────────
 
-class _ProductCard extends ConsumerStatefulWidget {
+class _ProductCard extends ConsumerWidget {
   final Product product;
   const _ProductCard({required this.product});
-  @override
-  ConsumerState<_ProductCard> createState() => _ProductCardState();
-}
-
-class _ProductCardState extends ConsumerState<_ProductCard> {
-  double _qty = 0;
 
   @override
-  Widget build(BuildContext context) {
-    final p = widget.product;
-    final inCart = ref.watch(cartProvider).any((i) => i.product.id == p.id);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = product;
+    final cartItems = ref.watch(cartProvider);
+    final cartItem = cartItems.where((i) => i.product.id == p.id).firstOrNull;
+    final qty = cartItem?.qty ?? 0.0;
+    final inCart = cartItem != null;
     final outOfStock = p.stockQty <= 0;
 
     return Container(
@@ -495,7 +559,21 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
               Text('₹${p.pricePerUnit}/${p.unit}',
                   style: const TextStyle(color: Color(0xFF2E7D32),
                       fontWeight: FontWeight.bold, fontSize: 12)),
-              const SizedBox(height: 7),
+              const SizedBox(height: 2),
+              // Stock info
+              if (!outOfStock) Builder(builder: (_) {
+                final low = p.stockQty <= p.lowStockThreshold;
+                return Text(
+                  low
+                      ? 'Only ${p.stockQty.toStringAsFixed(p.stockQty.truncateToDouble() == p.stockQty ? 0 : 1)} ${p.unit} left!'
+                      : '${p.stockQty.toStringAsFixed(p.stockQty.truncateToDouble() == p.stockQty ? 0 : 1)} ${p.unit} available',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: low ? Colors.orange.shade700 : Colors.grey,
+                    fontWeight: low ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                );
+              }),
 
               if (outOfStock)
                 Container(
@@ -509,7 +587,7 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
                           style: TextStyle(color: Colors.red, fontSize: 11,
                               fontWeight: FontWeight.w600))),
                 )
-              else if (_qty == 0)
+              else if (qty == 0)
                 SizedBox(
                   width: double.infinity,
                   height: 32,
@@ -518,7 +596,6 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
                     label: const Text('ADD', style: TextStyle(fontSize: 12,
                         fontWeight: FontWeight.bold)),
                     onPressed: () {
-                      setState(() => _qty = p.minQty);
                       ref.read(cartProvider.notifier).addItem(p, p.minQty);
                       ScaffoldMessenger.of(context)
                         ..clearSnackBars()
@@ -545,19 +622,17 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
                     _StepBtn(
                       icon: Icons.remove,
                       onTap: () {
-                        final nq = _qty - p.qtyStep;
+                        final nq = qty - p.qtyStep;
                         if (nq < p.minQty) {
-                          setState(() => _qty = 0);
                           ref.read(cartProvider.notifier).removeItem(p.id);
                         } else {
-                          setState(() => _qty = nq);
                           ref.read(cartProvider.notifier).updateQty(p.id, nq);
                         }
                       },
                     ),
                     Expanded(
                       child: Center(
-                        child: Text('${_qty.toStringAsFixed(1)} ${p.unit}',
+                        child: Text('${qty.toStringAsFixed(1)} ${p.unit}',
                             style: const TextStyle(fontWeight: FontWeight.bold,
                                 fontSize: 11, color: Color(0xFF2E7D32))),
                       ),
@@ -565,8 +640,9 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
                     _StepBtn(
                       icon: Icons.add,
                       onTap: () {
-                        setState(() => _qty = _qty + p.qtyStep);
-                        ref.read(cartProvider.notifier).updateQty(p.id, _qty);
+                        final newQty = qty + p.qtyStep;
+                        if (newQty > p.stockQty) return;
+                        ref.read(cartProvider.notifier).updateQty(p.id, newQty);
                       },
                     ),
                   ]),
@@ -597,4 +673,239 @@ class _StepBtn extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Tier card ─────────────────────────────────────────────────────────────────
+
+class _TierCard extends StatelessWidget {
+  final AppUser user;
+  const _TierCard({required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    // Don't show anything while tier data is loading
+    if (user.tierName == null) return const SizedBox.shrink();
+
+    final tierName = user.tierName!;
+    final tc = tierColor(user.tierColor);
+    final isRestricted = tierName == 'Restricted';
+
+    return GestureDetector(
+      onTap: () => showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (_) => _TierInfoSheet(currentTierName: tierName, currentTierColor: user.tierColor),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: tc.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: tc.withValues(alpha: 0.3)),
+        ),
+        child: Row(children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              color: tc.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.workspace_premium, color: tc, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Membership Tier',
+                style: TextStyle(fontSize: 11, color: Colors.black54)),
+            Text(tierName,
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: tc)),
+            if (isRestricted)
+              Text('Top up to ₹0 to restore ordering',
+                  style: TextStyle(fontSize: 11, color: Colors.red.shade600))
+            else
+              Text('Tap to see all tiers & benefits',
+                  style: TextStyle(fontSize: 11, color: tc.withValues(alpha: 0.7))),
+          ])),
+          if (isRestricted)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Text('Orders blocked',
+                  style: TextStyle(fontSize: 10, color: Colors.red.shade700,
+                      fontWeight: FontWeight.bold)),
+            )
+          else
+            Icon(Icons.chevron_right, color: tc.withValues(alpha: 0.5), size: 20),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Tier info bottom sheet ─────────────────────────────────────────────────────
+
+class _TierInfoSheet extends ConsumerStatefulWidget {
+  final String currentTierName;
+  final String? currentTierColor;
+  const _TierInfoSheet({required this.currentTierName, this.currentTierColor});
+
+  @override
+  ConsumerState<_TierInfoSheet> createState() => _TierInfoSheetState();
+}
+
+class _TierInfoSheetState extends ConsumerState<_TierInfoSheet> {
+  List<Map<String, dynamic>> _tiers = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await ref.read(dioProvider).get(Endpoints.publicTiers);
+      setState(() {
+        _tiers = List<Map<String, dynamic>>.from(res.data['tiers'] as List);
+        _loading = false;
+      });
+    } catch (_) {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(height: 8),
+        Container(width: 40, height: 4,
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(children: [
+            const Icon(Icons.workspace_premium, color: Color(0xFF2E7D32)),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Membership Tiers',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
+            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: Text('Top up your wallet to qualify for higher tiers and enjoy more cashback.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+        ),
+        const Divider(height: 1),
+        if (_loading)
+          const Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())
+        else
+          Flexible(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              itemCount: _tiers.length,
+              itemBuilder: (_, i) {
+                final t = _tiers[i];
+                final name = t['name'] as String;
+                final tc = tierColor(t['color'] as String?);
+                final isRestricted = name == 'Restricted';
+                final isCurrent = name == widget.currentTierName;
+                final minBal = (t['min_wallet_balance'] as num).toDouble();
+                final maxNeg = (t['max_wallet_negative_limit'] as num).toDouble();
+                final mult = (t['cashback_multiplier'] as num).toDouble();
+
+                if (isRestricted) return const SizedBox.shrink();
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isCurrent ? tc.withValues(alpha: 0.08) : Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: isCurrent ? tc : Colors.grey.shade200, width: isCurrent ? 2 : 1),
+                  ),
+                  child: Row(children: [
+                    Container(
+                      width: 44, height: 44,
+                      decoration: BoxDecoration(color: tc.withValues(alpha: 0.15), shape: BoxShape.circle),
+                      child: Icon(Icons.workspace_premium, color: tc, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text(name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: tc)),
+                        if (isCurrent) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(color: tc, borderRadius: BorderRadius.circular(8)),
+                            child: const Text('Your Tier', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ]),
+                      const SizedBox(height: 5),
+                      Wrap(spacing: 6, runSpacing: 4, children: [
+                        if (minBal > 0)
+                          _InfoChip('Wallet ≥ ₹${minBal.toStringAsFixed(0)}', Icons.account_balance_wallet_outlined)
+                        else
+                          _InfoChip('No min balance', Icons.check_circle_outline),
+                        _InfoChip('${mult.toStringAsFixed(1)}× cashback', Icons.card_giftcard_outlined),
+                        if (maxNeg > 0)
+                          _InfoChip('Credit up to -₹${maxNeg.toStringAsFixed(0)}', Icons.credit_card_outlined),
+                      ]),
+                    ])),
+                  ]),
+                );
+              },
+            ),
+          ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F5E9),
+            border: Border(top: BorderSide(color: Colors.grey.shade200)),
+          ),
+          child: const Row(children: [
+            Icon(Icons.info_outline, color: Color(0xFF2E7D32), size: 18),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Top up your wallet to upgrade. Tiers update automatically when your balance changes.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32)),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  const _InfoChip(this.label, this.icon);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.grey.shade300),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 11, color: Colors.grey.shade600),
+      const SizedBox(width: 3),
+      Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+    ]),
+  );
 }

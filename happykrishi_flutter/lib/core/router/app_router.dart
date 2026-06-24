@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
+import '../api/dio_client.dart' show readTokenSync;
 import '../../features/auth/otp_screen.dart';
 import '../../features/auth/verify_screen.dart';
 import '../../features/auth/register_screen.dart';
@@ -29,6 +30,7 @@ import '../../features/admin/topup_requests_screen.dart';
 import '../../features/admin/analytics_screen.dart';
 import '../../features/admin/rewards_screen.dart';
 import '../../features/admin/admin_customers_screen.dart';
+import '../../features/admin/admin_tiers_screen.dart';
 import '../../features/admin/salesman_screen.dart';
 import '../../features/admin/admin_custom_delivery_screen.dart';
 import '../../features/admin/admin_profile_screen.dart';
@@ -42,8 +44,27 @@ import '../../features/auth/change_password_screen.dart';
 
 // Single GoRouter instance — no refreshListenable, navigation is explicit in each screen
 final routerProvider = Provider<GoRouter>((ref) {
+  // Protected routes that require a logged-in user
+  const protectedPrefixes = [
+    '/home', '/products', '/cart', '/checkout', '/orders',
+    '/track/', '/wallet', '/profile', '/notifications', '/request-delivery',
+    '/info',
+    '/admin/', '/salesman/', '/agent',
+  ];
+
   return GoRouter(
     initialLocation: '/splash',
+    redirect: (context, state) {
+      final token = readTokenSync();
+      final loc = state.uri.toString();
+
+      // If no token and trying to access a protected route → send to login
+      if (token == null) {
+        final isProtected = protectedPrefixes.any((p) => loc.startsWith(p));
+        if (isProtected) return '/auth/otp';
+      }
+      return null; // no redirect needed
+    },
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
       GoRoute(path: '/auth/otp', builder: (_, _) => const OtpScreen()),
@@ -86,6 +107,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/admin/rewards', builder: (_, _) => const RewardsScreen()),
       GoRoute(path: '/admin/salesman', builder: (_, _) => const SalesmanScreen()),
       GoRoute(path: '/admin/customers', builder: (_, _) => const AdminCustomersScreen()),
+      GoRoute(path: '/admin/tiers', builder: (_, _) => const AdminTiersScreen()),
       GoRoute(path: '/admin/custom-delivery', builder: (ctx, s) => const AdminCustomDeliveryScreen()),
       GoRoute(path: '/admin/profile', builder: (ctx, s) => const AdminProfileScreen()),
 

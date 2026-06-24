@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/utils/error_handler.dart';
 
 final agentsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -20,6 +22,11 @@ class AdminAgentsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Delivery Agents'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(agentsProvider),
@@ -121,7 +128,7 @@ class AdminAgentsScreen extends ConsumerWidget {
                 ),
               ),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) { logError('admin-agents', e); return Center(child: Text(friendlyError(e))); },
       ),
     );
   }

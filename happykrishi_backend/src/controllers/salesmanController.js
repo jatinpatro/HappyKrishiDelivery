@@ -100,17 +100,16 @@ function updateSalesman(req, res) {
 
 // ── Cash summary ──────────────────────────────────────────────────────────────
 function getSalesmanSummary(req, res) {
-  // Approved cash NOT yet settled (old flow — grouped by salesman)
+  // Approved cash NOT yet settled — individual requests per customer
   const collected = db.prepare(`
-    SELECT COALESCE(collected_by, 'Unassigned') as salesman_name,
-           COUNT(*) as request_count,
-           SUM(amount) as total_collected,
-           GROUP_CONCAT(id) as request_ids,
-           MIN(created_at) as first_date, MAX(created_at) as last_date
-    FROM topup_requests
-    WHERE payment_method='cash' AND status='approved' AND settled_at IS NULL
-      AND settlement_id IS NULL
-    GROUP BY COALESCE(collected_by, 'Unassigned') ORDER BY total_collected DESC
+    SELECT tr.*, u.name as customer_name, u.phone as customer_phone,
+           s.name as salesman_name
+    FROM topup_requests tr
+    JOIN users u ON u.id = tr.user_id
+    LEFT JOIN users s ON s.id = CAST(tr.collected_by AS INTEGER)
+    WHERE tr.payment_method='cash' AND tr.status='approved' AND tr.settled_at IS NULL
+      AND tr.settlement_id IS NULL
+    ORDER BY tr.resolved_at DESC
   `).all();
 
   // Settlement requests raised by salesmen — pending admin acknowledgement
@@ -130,8 +129,11 @@ function getSalesmanSummary(req, res) {
   `).all();
 
   const pending = db.prepare(`
-    SELECT tr.*, u.name as user_name, u.phone as user_phone
-    FROM topup_requests tr JOIN users u ON u.id=tr.user_id
+    SELECT tr.*, u.name as user_name, u.phone as user_phone,
+           s.name as collector_name
+    FROM topup_requests tr
+    JOIN users u ON u.id = tr.user_id
+    LEFT JOIN users s ON s.id = CAST(tr.collected_by AS INTEGER)
     WHERE tr.payment_method='cash' AND tr.status='pending'
     ORDER BY tr.created_at DESC
   `).all();
@@ -147,7 +149,7 @@ function acknowledgeSettlement(req, res) {
   if (!settlement) return res.status(404).json({ error: 'Settlement not found' });
   if (settlement.settled_by) return res.status(400).json({ error: 'Already acknowledged' });
 
-  db.prepare("UPDATE salesman_settlements SET settled_by=? WHERE id=?").run(req.user.id, settlementId);
+  db.prepare("UPDATE salesman_settlements SET settled_by=?, updated_at=datetime('now') WHERE id=?").run(req.user.id, settlementId);
 
   // Mark all topup_requests in this settlement as settled
   const ids = JSON.parse(settlement.topup_request_ids);
@@ -171,13 +173,12 @@ function settleSalesman(req, res) {
     return res.status(400).json({ error: 'salesman_name and request_ids required' });
   }
   const placeholders = request_ids.map(() => '?').join(',');
-  // Match by salesman_name OR allow Unassigned (collected_by IS NULL)
+  // Match by request IDs only — admin passes exact IDs, no need to re-filter by collector
   const requests = db.prepare(
-    `SELECT id,amount FROM topup_requests
+    `SELECT id, amount FROM topup_requests
      WHERE id IN (${placeholders}) AND status='approved'
-       AND settled_at IS NULL AND settlement_id IS NULL
-       AND (collected_by=? OR (collected_by IS NULL AND ?='Unassigned'))`
-  ).all(...request_ids, salesman_name, salesman_name);
+       AND settled_at IS NULL AND settlement_id IS NULL`
+  ).all(...request_ids);
 
   if (!requests.length) return res.status(400).json({ error: 'No matching unsettled approved requests found — these may have already been settled' });
   const totalAmount = requests.reduce((s, r) => s + r.amount, 0);
@@ -328,21 +329,46 @@ function salesmanDashboard(req, res) {
   const userId = req.user.id;
   const name = req.user.name;
 
-  // Cash collections
+  // Cash collections — now using userId (integer FK)
   const pending = db.prepare(`
     SELECT tr.*, u.name as customer_name, u.phone as customer_phone
     FROM topup_requests tr JOIN users u ON u.id=tr.user_id
-    WHERE tr.collected_by=? AND tr.status='pending' ORDER BY tr.created_at DESC
-  `).all(name);
-  const approved = db.prepare(`
-    SELECT tr.*, u.name as customer_name FROM topup_requests tr JOIN users u ON u.id=tr.user_id
-    WHERE tr.collected_by=? AND tr.status='approved' ORDER BY tr.created_at DESC LIMIT 20
-  `).all(name);
+    WHERE CAST(tr.collected_by AS INTEGER)=? AND tr.status='pending'
+    ORDER BY tr.created_at DESC
+  `).all(userId);
+
+  // Approved — not yet settled (no settlement_id)
+  const approvedNotRaised = db.prepare(`
+    SELECT tr.*, u.name as customer_name FROM topup_requests tr
+    JOIN users u ON u.id=tr.user_id
+    WHERE CAST(tr.collected_by AS INTEGER)=? AND tr.status='approved'
+      AND tr.settlement_id IS NULL AND tr.settled_at IS NULL
+    ORDER BY tr.created_at DESC
+  `).all(userId);
+
+  // Approved — raised settlement (has settlement_id, settlement not yet acknowledged by admin)
+  const approvedRaisedPending = db.prepare(`
+    SELECT tr.*, u.name as customer_name FROM topup_requests tr
+    JOIN users u ON u.id=tr.user_id
+    WHERE CAST(tr.collected_by AS INTEGER)=? AND tr.status='approved'
+      AND tr.settlement_id IS NOT NULL AND tr.settled_at IS NULL
+    ORDER BY tr.created_at DESC
+  `).all(userId);
+
+  // Approved — fully settled (admin acknowledged)
+  const approvedSettled = db.prepare(`
+    SELECT tr.*, u.name as customer_name FROM topup_requests tr
+    JOIN users u ON u.id=tr.user_id
+    WHERE CAST(tr.collected_by AS INTEGER)=? AND tr.status='approved'
+      AND tr.settled_at IS NOT NULL
+    ORDER BY tr.settled_at DESC LIMIT 20
+  `).all(userId);
+
   const settlements = db.prepare(
     'SELECT * FROM salesman_settlements WHERE salesman_name=? ORDER BY created_at DESC LIMIT 10'
   ).all(name);
 
-  // Delivery orders assigned to this salesman (via delivery_agents table)
+  // Delivery orders
   const agentRow = db.prepare('SELECT id FROM delivery_agents WHERE user_id=?').get(userId);
   const assignedOrders = agentRow ? db.prepare(`
     SELECT o.*, d.id as delivery_id, d.status as delivery_status,
@@ -357,30 +383,41 @@ function salesmanDashboard(req, res) {
     ORDER BY o.delivery_date ASC
   `).all(agentRow.id) : [];
 
-  // Completed deliveries today count
   const completedToday = agentRow ? db.prepare(`
     SELECT COUNT(*) as c FROM deliveries WHERE agent_id=? AND status='delivered' AND date(delivered_at)=date('now')
   `).get(agentRow.id) : { c: 0 };
 
-  // Fetch order items for assigned orders (needed for weight-adjusted items)
   const assignedWithItems = assignedOrders.map(o => ({
     ...o,
     items: db.prepare(`
       SELECT oi.*, p.name as product_name, p.unit, p.is_weight_adjusted
-      FROM order_items oi JOIN products p ON p.id = oi.product_id
-      WHERE oi.order_id = ?
+      FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?
     `).all(o.id),
   }));
+
+  // Combined approved list for backward compat
+  const approved = [...approvedNotRaised, ...approvedRaisedPending, ...approvedSettled];
 
   res.json({
     salesman: name,
     agent_id: agentRow?.id || null,
-    pending_collections: { items: pending, total: pending.reduce((s,r)=>s+r.amount,0), count: pending.length },
-    approved_collections: { items: approved, total: approved.reduce((s,r)=>s+r.amount,0), count: approved.length },
+    pending_collections: {
+      items: pending,
+      total: pending.reduce((s,r)=>s+r.amount,0),
+      count: pending.length,
+    },
+    approved_collections: {
+      items: approved,
+      total: approved.reduce((s,r)=>s+r.amount,0),
+      count: approved.length,
+      not_raised: { items: approvedNotRaised, total: approvedNotRaised.reduce((s,r)=>s+r.amount,0), count: approvedNotRaised.length },
+      raised_pending: { items: approvedRaisedPending, total: approvedRaisedPending.reduce((s,r)=>s+r.amount,0), count: approvedRaisedPending.length },
+      settled: { items: approvedSettled, total: approvedSettled.reduce((s,r)=>s+r.amount,0), count: approvedSettled.length },
+    },
     settlements,
     assigned_orders: assignedWithItems,
-    completed_orders: [],       // history now served by /history endpoint
-    cancelled_orders: [],       // history now served by /history endpoint
+    completed_orders: [],
+    cancelled_orders: [],
     completed_today: completedToday.c,
   });
 }
@@ -512,6 +549,8 @@ function confirmAndAssignOrder(req, res) {
     'Order Confirmed!',
     `Your order #${order.order_number} has been confirmed and assigned to ${assignedUser?.name ?? 'a salesman'}.`
   );
+  const selfUser = db.prepare('SELECT name FROM users WHERE id=?').get(selfUserId);
+  notificationService.sendToAdmins('Order Assigned 🚚', `Order #${order.order_number} assigned to ${assignedUser?.name ?? 'salesman'} by ${selfUser?.name ?? 'salesman'}`, { type: 'order_assigned', order_id: String(orderId) });
 
   res.json({
     message: `Order confirmed and assigned to ${assignedUser?.name ?? 'salesman'}`,

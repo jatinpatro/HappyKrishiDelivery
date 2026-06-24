@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
+import '../../core/utils/error_handler.dart';
 
 class VerifyScreen extends ConsumerStatefulWidget {
   final String phone;
@@ -137,8 +138,9 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> {
         SnackBar(content: Text(e.response?.data['error'] ?? 'Invalid OTP')),
       );
     } catch (e, st) {
+      logError('auth-verify', e, st);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text(friendlyError(e))),
       );
     } finally {
       if (mounted) setState(() => _loading = false);

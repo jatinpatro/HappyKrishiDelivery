@@ -5,6 +5,8 @@ import 'package:dio/dio.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
+import '../../core/utils/error_handler.dart';
+import '../admin/admin_tiers_screen.dart' show tierColor;
 
 final addressesProvider = FutureProvider.autoDispose<List<Address>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -21,7 +23,16 @@ class ProfileScreen extends ConsumerWidget {
     final addresses = ref.watch(addressesProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(
+        title: const Text('Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
+        ],
+      ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         // User info card
         Card(
@@ -49,6 +60,26 @@ class ProfileScreen extends ConsumerWidget {
                   if (user?.email != null)
                     Text(user!.email!,
                         style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  if (user?.tierName != null) ...[
+                    const SizedBox(height: 6),
+                    Builder(builder: (_) {
+                      final tc = tierColor(user!.tierColor);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: tc.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: tc.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.workspace_premium, size: 13, color: tc),
+                          const SizedBox(width: 4),
+                          Text(user!.tierName!,
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: tc)),
+                        ]),
+                      );
+                    }),
+                  ],
                 ]),
               ),
               IconButton(
@@ -104,7 +135,7 @@ class ProfileScreen extends ConsumerWidget {
                       .toList(),
                 ),
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Text('$e'),
+          error: (e, _) { logError('profile', e); return Text(friendlyError(e)); },
         ),
 
         const SizedBox(height: 24),
@@ -757,10 +788,11 @@ class _AddressTile extends ConsumerWidget {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Address deleted')));
       }
-    } catch (e) {
+    } catch (e, st) {
+      logError('profile', e, st);
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     }
   }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/utils/error_handler.dart';
 
 final rewardRulesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -51,6 +53,11 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen>
       appBar: AppBar(
         title: const Text('Customer Rewards'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
           IconButton(
             icon: const Icon(Icons.play_circle_outline),
             tooltip: 'Calculate Rewards Now',
@@ -154,10 +161,11 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen>
                             _tabs.animateTo(1); // jump to Payout History tab
                           }
                         }
-                      } catch (e) {
+                      } catch (e, st) {
+                        logError('admin-rewards', e, st);
                         if (dialogCtx.mounted) Navigator.pop(dialogCtx);
                         messenger.showSnackBar(SnackBar(
-                            content: Text('Error: $e'), backgroundColor: Colors.red));
+                            content: Text(friendlyError(e)), backgroundColor: Colors.red));
                       }
                     },
             ),
@@ -204,7 +212,7 @@ class _RulesTab extends ConsumerWidget {
               ),
             ),
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) { logError('admin-rewards', e); return Center(child: Text(friendlyError(e))); },
     );
   }
 }
@@ -221,88 +229,195 @@ class _RuleTile extends ConsumerWidget {
     final pct = (rule['cashback_percent'] as num).toDouble();
     final minQty = (rule['min_qty'] as num).toDouble();
     final minSpend = (rule['min_spend'] as num).toDouble();
+    final isProduct = rule['type'] == 'product_cashback';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: isActive ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
-          child: Icon(Icons.card_giftcard,
-              color: isActive ? const Color(0xFF2E7D32) : Colors.grey, size: 20),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: isActive ? const Color(0xFF2E7D32).withValues(alpha: 0.2) : Colors.grey.shade200,
         ),
-        title: Row(children: [
-          Text(rule['name'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2E7D32),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text('$pct%',
-                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-          ),
-        ]),
-        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${rule['type'] == 'product_cashback' ? 'Product' : 'Category'}: ${rule['target_name']}',
-              style: const TextStyle(fontSize: 12)),
-          if (minQty > 0 || minSpend > 0)
-            Text(
-              [
-                if (minQty > 0) 'Min ${minQty.toStringAsFixed(1)} kg',
-                if (minSpend > 0) 'Min ₹${minSpend.toStringAsFixed(0)} spend',
-              ].join(' • '),
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
-            ),
-        ]),
-        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-          Switch(
-            value: isActive,
-            activeTrackColor: const Color(0xFF2E7D32),
-            onChanged: (_) async {
-              final dio = ref.read(dioProvider);
-              await dio.put(Endpoints.adminRewardsRule(rule['id'] as int),
-                  data: {'is_active': !isActive});
-              onToggle();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined, size: 20, color: Color(0xFF2E7D32)),
-            tooltip: 'Edit rule',
-            onPressed: () => showDialog(
-              context: context,
-              builder: (ctx) => _AddRuleDialog(
-                onCreated: onToggle,
-                existing: rule,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            // Type icon
+            Container(
+              width: 42, height: 42,
+              decoration: BoxDecoration(
+                color: isActive
+                    ? const Color(0xFF2E7D32).withValues(alpha: 0.1)
+                    : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                isProduct ? Icons.inventory_2_outlined : Icons.category_outlined,
+                color: isActive ? const Color(0xFF2E7D32) : Colors.grey,
+                size: 20,
               ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-            onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (dialogCtx) => AlertDialog(
-                  title: const Text('Delete Rule?'),
-                  content: Text('Delete "${rule['name']}"? This cannot be undone.'),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Cancel')),
-                    TextButton(onPressed: () => Navigator.pop(dialogCtx, true),
-                        style: TextButton.styleFrom(foregroundColor: Colors.red),
-                        child: const Text('Delete')),
-                  ],
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(
+                  child: Text(rule['name'] as String,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
-              );
-              if (confirmed != true) return;
-              final dio = ref.read(dioProvider);
-              await dio.delete(Endpoints.adminRewardsRule(rule['id'] as int));
-              onDelete();
-            },
-          ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? const Color(0xFF2E7D32)
+                        : Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text('$pct% cashback',
+                      style: const TextStyle(color: Colors.white, fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ]),
+              const SizedBox(height: 3),
+              Text(
+                '${isProduct ? 'Product' : 'Category'}: ${rule['target_name']}',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              ),
+              if (minQty > 0 || minSpend > 0) ...[
+                const SizedBox(height: 2),
+                Row(children: [
+                  if (minQty > 0) _Pill(Icons.scale_outlined, 'Min ${minQty.toStringAsFixed(1)} kg'),
+                  if (minQty > 0 && minSpend > 0) const SizedBox(width: 6),
+                  if (minSpend > 0) _Pill(Icons.currency_rupee, 'Min ₹${minSpend.toStringAsFixed(0)}'),
+                ]),
+              ],
+            ])),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            // Active toggle
+            Transform.scale(
+              scale: 0.85,
+              child: Switch(
+                value: isActive,
+                activeTrackColor: const Color(0xFF2E7D32),
+                onChanged: (_) async {
+                  final dio = ref.read(dioProvider);
+                  await dio.put(Endpoints.adminRewardsRule(rule['id'] as int),
+                      data: {'is_active': !isActive});
+                  onToggle();
+                },
+              ),
+            ),
+            Text(isActive ? 'Active' : 'Inactive',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: isActive ? const Color(0xFF2E7D32) : Colors.grey)),
+            const Spacer(),
+            // Duplicate
+            _ActionBtn(
+              icon: Icons.copy_outlined,
+              label: 'Duplicate',
+              color: Colors.blue.shade700,
+              onTap: () => showDialog(
+                context: context,
+                builder: (ctx) => _AddRuleDialog(
+                  onCreated: onToggle,
+                  existing: {
+                    ...rule,
+                    'id': null,
+                    'name': 'Copy of ${rule['name']}',
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Edit
+            _ActionBtn(
+              icon: Icons.edit_outlined,
+              label: 'Edit',
+              color: const Color(0xFF2E7D32),
+              onTap: () => showDialog(
+                context: context,
+                builder: (ctx) => _AddRuleDialog(onCreated: onToggle, existing: rule),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Delete
+            _ActionBtn(
+              icon: Icons.delete_outline,
+              label: 'Delete',
+              color: Colors.red,
+              onTap: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (dialogCtx) => AlertDialog(
+                    title: const Text('Delete Rule?'),
+                    content: Text('Delete "${rule['name']}"? This cannot be undone.'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Cancel')),
+                      TextButton(onPressed: () => Navigator.pop(dialogCtx, true),
+                          style: TextButton.styleFrom(foregroundColor: Colors.red),
+                          child: const Text('Delete')),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+                final dio = ref.read(dioProvider);
+                await dio.delete(Endpoints.adminRewardsRule(rule['id'] as int));
+                onDelete();
+              },
+            ),
+          ]),
         ]),
       ),
     );
   }
+}
+
+class _Pill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _Pill(this.icon, this.label);
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: Colors.grey.shade100,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.grey.shade300),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 11, color: Colors.grey.shade600),
+      const SizedBox(width: 3),
+      Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade700)),
+    ]),
+  );
+}
+
+class _ActionBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _ActionBtn({required this.icon, required this.label, required this.color, required this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+      ]),
+    ),
+  );
 }
 
 // ── Payouts Tab ───────────────────────────────────────────────────────────────
@@ -332,8 +447,9 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
           backgroundColor: const Color(0xFF2E7D32),
         ));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } catch (e, st) {
+      logError('admin-rewards', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -351,8 +467,9 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
           backgroundColor: const Color(0xFF2E7D32),
         ));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } catch (e, st) {
+      logError('admin-rewards', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -368,8 +485,9 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Payouts rejected')));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } catch (e, st) {
+      logError('admin-rewards', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
@@ -501,6 +619,12 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
                         final spend = (p['spend_amount'] as num).toDouble();
                         final qty = (p['qty_purchased'] as num).toDouble();
                         final status = p['status'] as String;
+                        final multiplier = (p['tier_multiplier'] as num? ?? 1.0).toDouble();
+                        final tierName = p['tier_name'] as String?;
+                        final pct = (p['cashback_percent'] as num).toDouble();
+                        final calcStr = multiplier != 1.0
+                            ? '₹${spend.toStringAsFixed(0)} × ${pct.toStringAsFixed(0)}% × ${multiplier.toStringAsFixed(1)}× = ₹${cashback.toStringAsFixed(2)}'
+                            : '₹${spend.toStringAsFixed(0)} × ${pct.toStringAsFixed(0)}% = ₹${cashback.toStringAsFixed(2)}';
                         final isPending = status == 'pending';
                         final isSelected = _selectedIds.contains(id);
                         final statusColor = status == 'approved'
@@ -542,15 +666,28 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
                                           color: Colors.purple.withValues(alpha: 0.1),
                                           borderRadius: BorderRadius.circular(6)),
                                       child: Text(
-                                        '${p['cashback_percent']}% on ${p['target_name'] ?? p['rule_name']}',
+                                        '${pct.toStringAsFixed(0)}% on ${p['target_name'] ?? p['rule_name']}',
                                         style: const TextStyle(fontSize: 10, color: Colors.purple, fontWeight: FontWeight.bold),
                                       ),
                                     ),
+                                    if (tierName != null) ...[
+                                      const SizedBox(width: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                        decoration: BoxDecoration(
+                                            color: const Color(0xFF6A1B9A).withValues(alpha: 0.1),
+                                            borderRadius: BorderRadius.circular(6)),
+                                        child: Text(
+                                          '$tierName ${multiplier.toStringAsFixed(1)}×',
+                                          style: const TextStyle(fontSize: 10, color: Color(0xFF6A1B9A), fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
                                     const SizedBox(width: 6),
                                     Text(p['month'] as String? ?? '',
                                         style: const TextStyle(fontSize: 11, color: Colors.grey)),
                                   ]),
-                                  Text('₹${spend.toStringAsFixed(0)} spend  •  ${qty.toStringAsFixed(1)} kg',
+                                  Text('${qty.toStringAsFixed(1)} kg  •  $calcStr',
                                       style: const TextStyle(fontSize: 11, color: Colors.grey)),
                                 ])),
                                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -576,7 +713,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
         ]);
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) { logError('admin-rewards', e); return Center(child: Text(friendlyError(e))); },
     );
   }
 }
@@ -631,7 +768,8 @@ class _AddRuleDialogState extends ConsumerState<_AddRuleDialog> {
   late String? _selectedTargetName = widget.existing?['target_name'] as String?;
   bool _saving = false;
 
-  bool get _isEditing => widget.existing != null;
+  // Editing only when existing has a real id (not null = duplicate as new)
+  bool get _isEditing => widget.existing != null && widget.existing!['id'] != null;
 
   @override
   void dispose() {
@@ -706,8 +844,8 @@ class _AddRuleDialogState extends ConsumerState<_AddRuleDialog> {
               padding: EdgeInsets.symmetric(vertical: 12),
               child: Center(child: CircularProgressIndicator()),
             ),
-            error: (e, _) => Text('Error loading: $e',
-                style: const TextStyle(color: Colors.red, fontSize: 12)),
+            error: (e, _) { logError('admin-rewards', e); return Text(friendlyError(e),
+                style: const TextStyle(color: Colors.red, fontSize: 12)); },
           ),
           const SizedBox(height: 10),
           TextField(
@@ -777,9 +915,10 @@ class _AddRuleDialogState extends ConsumerState<_AddRuleDialog> {
             SnackBar(content: Text(_isEditing ? 'Rule updated ✅' : 'Cashback rule created ✅'),
                 backgroundColor: Color(0xFF2E7D32)));
       }
-    } catch (e) {
+    } catch (e, st) {
+      logError('admin-rewards', e, st);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _saving = false);

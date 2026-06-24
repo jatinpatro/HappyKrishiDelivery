@@ -7,6 +7,7 @@ import '../../core/providers/cart_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../home/home_screen.dart' show categoriesProvider;
+import '../../core/utils/error_handler.dart';
 
 // Keep alive while browsing (inside ShellRoute) — refreshed by pull-to-refresh
 final productListProvider =
@@ -59,6 +60,11 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
       appBar: AppBar(
         title: const Text('Products'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
           if (cartCount > 0)
             Stack(alignment: Alignment.topRight, children: [
               IconButton(
@@ -173,17 +179,17 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                     ),
                   ),
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
+            error: (e, _) { logError('products', e); return Center(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                 const Icon(Icons.error_outline, color: Colors.red),
                 const SizedBox(height: 8),
-                Text('Error: $e'),
+                Text(friendlyError(e)),
                 TextButton(
                   onPressed: () => ref.invalidate(productListProvider(providerKey)),
                   child: const Text('Retry'),
                 ),
               ]),
-            ),
+            ); },
           ),
         ),
       ]),
@@ -204,20 +210,17 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
 
 // ── Product card with inline add-to-cart (same as home screen) ───────────────
 
-class _ProductCard extends ConsumerStatefulWidget {
+class _ProductCard extends ConsumerWidget {
   final Product product;
   const _ProductCard({required this.product});
-  @override
-  ConsumerState<_ProductCard> createState() => _ProductCardState();
-}
-
-class _ProductCardState extends ConsumerState<_ProductCard> {
-  double _qty = 0;
 
   @override
-  Widget build(BuildContext context) {
-    final p = widget.product;
-    final inCart = ref.watch(cartProvider).any((i) => i.product.id == p.id);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = product;
+    final cartItems = ref.watch(cartProvider);
+    final cartItem = cartItems.where((i) => i.product.id == p.id).firstOrNull;
+    final qty = cartItem?.qty ?? 0.0;
+    final inCart = cartItem != null;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -274,19 +277,32 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
                     color: Color(0xFF2E7D32),
                     fontWeight: FontWeight.bold,
                     fontSize: 12)),
+            // Stock info
+            if (p.stockQty > 0) Builder(builder: (_) {
+              final low = p.stockQty <= p.lowStockThreshold;
+              return Text(
+                low
+                    ? 'Only ${p.stockQty.toStringAsFixed(p.stockQty.truncateToDouble() == p.stockQty ? 0 : 1)} ${p.unit} left!'
+                    : '${p.stockQty.toStringAsFixed(p.stockQty.truncateToDouble() == p.stockQty ? 0 : 1)} ${p.unit}',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: low ? Colors.orange.shade700 : Colors.grey,
+                  fontWeight: low ? FontWeight.w600 : FontWeight.normal,
+                ),
+              );
+            }),
             const SizedBox(height: 6),
             if (p.stockQty <= 0)
               const Center(
                 child: Text('Out of Stock',
-                    style: TextStyle(color: Colors.red, fontSize: 11)),
+                    style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.w600)),
               )
-            else if (_qty == 0)
+            else if (qty == 0)
               SizedBox(
                 width: double.infinity,
                 height: 30,
                 child: ElevatedButton(
                   onPressed: () {
-                    setState(() => _qty = p.minQty);
                     ref.read(cartProvider.notifier).addItem(p, p.minQty);
                     ScaffoldMessenger.of(context).clearSnackBars();
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -304,19 +320,17 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
                 _StepBtn(
                   icon: Icons.remove,
                   onTap: () {
-                    final n = _qty - p.qtyStep;
+                    final n = qty - p.qtyStep;
                     if (n < p.minQty) {
-                      setState(() => _qty = 0);
                       ref.read(cartProvider.notifier).removeItem(p.id);
                     } else {
-                      setState(() => _qty = n);
                       ref.read(cartProvider.notifier).updateQty(p.id, n);
                     }
                   },
                 ),
                 Expanded(
                   child: Center(
-                    child: Text('${_qty.toStringAsFixed(1)} ${p.unit}',
+                    child: Text('${qty.toStringAsFixed(1)} ${p.unit}',
                         style: const TextStyle(
                             fontWeight: FontWeight.bold, fontSize: 12)),
                   ),
@@ -324,8 +338,8 @@ class _ProductCardState extends ConsumerState<_ProductCard> {
                 _StepBtn(
                   icon: Icons.add,
                   onTap: () {
-                    final n = _qty + p.qtyStep;
-                    setState(() => _qty = n);
+                    final n = qty + p.qtyStep;
+                    if (n > p.stockQty) return;
                     ref.read(cartProvider.notifier).updateQty(p.id, n);
                   },
                 ),

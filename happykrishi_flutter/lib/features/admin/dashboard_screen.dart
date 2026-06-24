@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/utils/error_handler.dart';
 
 final dashboardProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -42,13 +43,15 @@ class DashboardScreen extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(20, 16, 16, 28),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      Container(
-                        width: 40, height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
+                      Image.asset('assets/images/logo.png', height: 40, width: 40, fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 40, height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(child: Text('🌿', style: TextStyle(fontSize: 20))),
                         ),
-                        child: const Center(child: Text('🌿', style: TextStyle(fontSize: 20))),
                       ),
                       const SizedBox(width: 10),
                       const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -190,7 +193,9 @@ class DashboardScreen extends ConsumerWidget {
                     padding: EdgeInsets.all(40),
                     child: Center(child: CircularProgressIndicator()),
                   ),
-                  error: (e, _) => Padding(
+                  error: (e, _) {
+                    logError('dashboard', e);
+                    return Padding(
                     padding: const EdgeInsets.all(16),
                     child: Container(
                       padding: const EdgeInsets.all(14),
@@ -200,13 +205,13 @@ class DashboardScreen extends ConsumerWidget {
                       child: Row(children: [
                         const Icon(Icons.error_outline, color: Colors.red),
                         const SizedBox(width: 10),
-                        Expanded(child: Text('$e', style: const TextStyle(fontSize: 13))),
+                        Expanded(child: Text(friendlyError(e), style: const TextStyle(fontSize: 13))),
                         TextButton(
                             onPressed: () => ref.invalidate(dashboardProvider),
                             child: const Text('Retry')),
                       ]),
                     ),
-                  ),
+                  ); },
                 ),
               ),
 
@@ -237,9 +242,8 @@ class DashboardScreen extends ConsumerWidget {
                     _ActionTile('Analytics', Icons.bar_chart,             const Color(0xFF1565C0), () => context.go('/admin/analytics')),
                     _ActionTile('Rewards',   Icons.card_giftcard,         const Color(0xFF880E4F), () => context.go('/admin/rewards')),
                     _ActionTile('Custom\nDelivery', Icons.location_off_outlined, const Color(0xFF00695C), () => context.go('/admin/custom-delivery')),
-                    _ActionTile('Reports',   Icons.bar_chart_outlined,    const Color(0xFF37474F), () => context.go('/admin/analytics')),
-                    _ActionTile('Config',    Icons.settings_outlined,     Colors.blueGrey,         () => context.go('/admin/config')),
-                    _ActionTile('Broadcast', Icons.campaign_outlined,     const Color(0xFF880E4F), () => context.go('/admin/analytics')),
+                    _ActionTile('Config',    Icons.settings_outlined,         Colors.blueGrey,         () => context.go('/admin/config')),
+                    _ActionTile('Tiers',     Icons.workspace_premium_outlined, const Color(0xFF6A1B9A), () => context.go('/admin/tiers')),
                   ]),
                 ),
               ),

@@ -5,6 +5,7 @@ const whatsappService = require('../services/whatsappService');
 const emailService = require('../services/emailService');
 const { checkGeofence } = require('../services/geofenceService');
 const wsServer = require('../websocket/server');
+const { recalculateCustomerTier } = require('../services/tierService');
 
 function getMyOrder(req, res) {
   const agentUser = db.prepare('SELECT id FROM delivery_agents WHERE user_id = ?').get(req.user.id);
@@ -146,11 +147,14 @@ function markDelivered(req, res) {
         db.prepare(`INSERT INTO wallet_transactions (user_id,type,amount,balance_after,reference_type,reference_id,description) VALUES (?,?,?,?,?,?,?)`)
           .run(order.user_id, 'refund', Math.abs(totalDiff), newBal, 'order', order.id, 'Weight adjustment — actual less than estimate');
       }
+      setImmediate(() => recalculateCustomerTier(order.user_id));
     }
   })();
 
   const updatedUser = db.prepare('SELECT wallet_balance, email FROM users WHERE id = ?').get(order.user_id);
   notificationService.sendToUser(order.user_id, 'Order Delivered!', `Your order #${order.order_number} has been delivered.`);
+  const deliveredCustomer = db.prepare('SELECT name FROM users WHERE id=?').get(order.user_id);
+  notificationService.sendToAdmins('Order Delivered ✅', `Order #${order.order_number} delivered to ${deliveredCustomer?.name ?? 'customer'} — ₹${order.final_amount?.toFixed(2) ?? ''}`, { type: 'order_delivered', order_id: String(order.id) });
   whatsappService.sendTemplate(order.user_id, 'order_delivered', []);
   const netAdjustmentsOut = adjustments.filter(a => Math.abs(a.diff_amount) > 0.005);
   if (netAdjustmentsOut.length > 0) {

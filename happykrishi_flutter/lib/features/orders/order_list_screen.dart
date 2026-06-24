@@ -5,16 +5,23 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../../core/services/pdf_service.dart';
+import '../../core/widgets/active_filter.dart';
+import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/utils/error_handler.dart';
 
 final ordersProvider = FutureProvider.autoDispose.family<List<Order>, String>((ref, key) async {
-  // key = "search|status"
-  final parts  = key.split('|');
-  final search = parts[0];
-  final status = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
+  // key = "search|status|dateFrom|dateTo"
+  final parts    = key.split('|');
+  final search   = parts[0];
+  final status   = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
+  final dateFrom = parts.length > 2 && parts[2].isNotEmpty ? parts[2] : null;
+  final dateTo   = parts.length > 3 && parts[3].isNotEmpty ? parts[3] : null;
   final dio = ref.read(dioProvider);
-  final params = <String, String>{'limit': '100'};
-  if (search.isNotEmpty) params['search'] = search;
-  if (status != null)    params['status']  = status;
+  final params = <String, String>{'limit': '200'};
+  if (search.isNotEmpty) params['search']    = search;
+  if (status   != null)  params['status']    = status;
+  if (dateFrom != null)  params['date_from'] = dateFrom;
+  if (dateTo   != null)  params['date_to']   = dateTo;
   final res = await dio.get(Endpoints.orders, queryParameters: params);
   return (res.data['orders'] as List).map((e) => Order.fromJson(e)).toList();
 });
@@ -28,12 +35,41 @@ class OrderListScreen extends ConsumerStatefulWidget {
 class _OrderListScreenState extends ConsumerState<OrderListScreen> {
   String? _statusFilter;
   String _search = '';
+  DateTime? _dateFrom;
+  DateTime? _dateTo;
   final _searchCtrl = TextEditingController();
+  List<ActiveFilter> _activeFilters = [];
+
+  static const _filterDefs = [
+    FilterDefinition(field: 'finalAmount', label: 'Amount', type: FilterType.number),
+    FilterDefinition(field: 'city', label: 'City', type: FilterType.text),
+  ];
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  String _fmt(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  bool get _hasDate => _dateFrom != null || _dateTo != null;
+
+  String get _providerKey =>
+      '$_search|${_statusFilter ?? ''}|${_dateFrom != null ? _fmt(_dateFrom!) : ''}|${_dateTo != null ? _fmt(_dateTo!) : ''}';
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2024),
+      lastDate: now,
+      initialDateRange: _dateFrom != null && _dateTo != null
+          ? DateTimeRange(start: _dateFrom!, end: _dateTo!)
+          : null,
+    );
+    if (picked != null) setState(() { _dateFrom = picked.start; _dateTo = picked.end; });
   }
 
   static const _statuses = [
@@ -47,8 +83,7 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final providerKey = '$_search|${_statusFilter ?? ''}';
-    final orders = ref.watch(ordersProvider(providerKey));
+    final orders = ref.watch(ordersProvider(_providerKey));
     final user = ref.watch(authStateProvider).user;
     final walletBalance = user?.walletBalance ?? 0;
 
@@ -56,6 +91,11 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
       appBar: AppBar(
         title: const Text('My Orders'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
           IconButton(
             icon: const Icon(Icons.download_outlined),
             tooltip: 'Download Order History',
@@ -111,6 +151,49 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               ),
+            ),
+            const SizedBox(height: 10),
+            // Date range filter
+            GestureDetector(
+              onTap: _pickDateRange,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _hasDate ? const Color(0xFF2E7D32).withValues(alpha: 0.08) : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                  ),
+                ),
+                child: Row(children: [
+                  Icon(Icons.date_range_outlined,
+                      size: 16, color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _hasDate
+                          ? '${_dateFrom != null ? _fmt(_dateFrom!) : '…'}  →  ${_dateTo != null ? _fmt(_dateTo!) : '…'}'
+                          : 'Filter by date',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey,
+                      ),
+                    ),
+                  ),
+                  if (_hasDate)
+                    GestureDetector(
+                      onTap: () => setState(() { _dateFrom = null; _dateTo = null; }),
+                      child: const Icon(Icons.close, size: 16, color: Colors.grey),
+                    ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FilterChipBar(
+              availableFilters: _filterDefs,
+              activeFilters: _activeFilters,
+              onAdd: (f) => setState(() => _activeFilters = [..._activeFilters.where((e) => e.field != f.field), f]),
+              onRemove: (f) => setState(() => _activeFilters = _activeFilters.where((e) => e.field != f.field).toList()),
             ),
             const SizedBox(height: 10),
             // Order count
@@ -190,7 +273,7 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
                 ));
               }
               return RefreshIndicator(
-                onRefresh: () async => ref.invalidate(ordersProvider(providerKey)),
+                onRefresh: () async => ref.invalidate(ordersProvider(_providerKey)),
                 child: ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: filtered.length,
@@ -199,14 +282,33 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
               );
             },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
+            error: (e, _) {
+              logError('orders', e);
+              return Center(child: Text(friendlyError(e)));
+            },
           ),
         ),
       ]),
     );
   }
 
-  List<Order> _filtered(List<Order> all) => all; // filtering done by backend
+  List<Order> _filtered(List<Order> all) {
+    if (_activeFilters.isEmpty) return all;
+    return all.where((o) {
+      for (final f in _activeFilters) {
+        switch (f.field) {
+          case 'finalAmount':
+            final n = o.finalAmount;
+            if (f.op == FilterOp.gte && n < (f.value as num)) return false;
+            if (f.op == FilterOp.lte && n > (f.value as num)) return false;
+            if (f.op == FilterOp.equals && n != (f.value as num)) return false;
+          case 'city':
+            if (!(o.city?.toLowerCase().contains((f.value as String).toLowerCase()) ?? false)) return false;
+        }
+      }
+      return true;
+    }).toList();
+  }
 }
 
 // ── Filter chip ───────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { recalculateCustomerTier } = require('./tierService');
 
 // Atomic wallet credit
 function credit(userId, amount, type, refType, refId, description) {
@@ -16,7 +17,9 @@ function credit(userId, amount, type, refType, refId, description) {
 
     return newBalance;
   });
-  return txn();
+  const result = txn();
+  setImmediate(() => recalculateCustomerTier(userId));
+  return result;
 }
 
 // Atomic wallet debit — balance can go negative (no minimum enforced)
@@ -35,7 +38,9 @@ function debit(userId, amount, type, refType, refId, description) {
 
     return newBalance;
   });
-  return txn();
+  const result = txn();
+  setImmediate(() => recalculateCustomerTier(userId));
+  return result;
 }
 
 // Weight-adjust: calculates diff and credits/debits accordingly — allows negative balance
@@ -73,7 +78,9 @@ function adjustForActualWeight(userId, orderId, adjustments) {
 
     return { diff_amount: totalDiff, newBalance };
   });
-  return txn();
+  const result = txn();
+  setImmediate(() => recalculateCustomerTier(userId));
+  return result;
 }
 
 module.exports = { credit, debit, adjustForActualWeight };

@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import 'agent_home_screen.dart';
+import '../../core/utils/error_handler.dart';
 
 class AgentDeliverScreen extends ConsumerStatefulWidget {
   final int deliveryId;
@@ -107,7 +108,7 @@ class _AgentDeliverScreenState extends ConsumerState<AgentDeliverScreen> {
           ]);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (e, _) { logError('agent-deliver', e); return Center(child: Text(friendlyError(e))); },
       ),
     );
   }

@@ -12,6 +12,8 @@ class AppUser {
   final String? createdAt;
   final String? gender;
   final String? birthdate;
+  final String? tierName;
+  final String? tierColor;
 
   const AppUser({
     required this.id,
@@ -25,6 +27,8 @@ class AppUser {
     this.createdAt,
     this.gender,
     this.birthdate,
+    this.tierName,
+    this.tierColor,
   });
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
@@ -39,12 +43,14 @@ class AppUser {
         createdAt: j['created_at'] as String?,
         gender: j['gender'] as String?,
         birthdate: j['birthdate'] as String?,
+        tierName: j['tier_name'] as String?,
+        tierColor: j['tier_color'] as String?,
       );
 
   AppUser copyWith({String? name, String? email, double? walletBalance}) => AppUser(
         id: id, phone: phone, role: role, nameOdia: nameOdia,
         isActive: isActive, createdAt: createdAt,
-        gender: gender, birthdate: birthdate,
+        gender: gender, birthdate: birthdate, tierName: tierName, tierColor: tierColor,
         name: name ?? this.name,
         email: email ?? this.email,
         walletBalance: walletBalance ?? this.walletBalance,

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../../core/services/pdf_service.dart';
 import 'topup_screen.dart';
+import '../../core/widgets/active_filter.dart';
+import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/utils/error_handler.dart';
 
 final walletProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -37,6 +41,12 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   String? _filter;
   DateTime? _dateFrom;
   DateTime? _dateTo;
+  List<ActiveFilter> _activeFilters = [];
+
+  static const _filterDefs = [
+    FilterDefinition(field: 'amount', label: 'Amount', type: FilterType.number),
+    FilterDefinition(field: 'description', label: 'Description', type: FilterType.text),
+  ];
 
   static const _filters = [
     (key: 'topup',    label: 'Top-up',       icon: Icons.payments,              color: Color(0xFFE65100)),
@@ -289,6 +299,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
         title: const Text('My Wallet'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
+          IconButton(
             icon: const Icon(Icons.download_outlined),
             tooltip: 'Download Statement',
             onPressed: () {
@@ -316,6 +331,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 balance: balance,
                 loading: wallet.isLoading,
                 isNegative: isNeg,
+                user: user,
                 onAddMoney: () => _showAddMoneySheet(context),
               ),
             ),
@@ -362,18 +378,26 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
             // Filter bar
             SliverToBoxAdapter(child: _buildFilterBar()),
 
+            // FilterChipBar
+            SliverToBoxAdapter(
+              child: FilterChipBar(
+                availableFilters: _filterDefs,
+                activeFilters: _activeFilters,
+                onAdd: (f) => setState(() => _activeFilters = [..._activeFilters.where((e) => e.field != f.field), f]),
+                onRemove: (f) => setState(() => _activeFilters = _activeFilters.where((e) => e.field != f.field).toList()),
+              ),
+            ),
+
             // Transaction list
             txns.when(
               loading: () => const SliverFillRemaining(
                 child: Center(child: CircularProgressIndicator()),
               ),
-              error: (e, _) => SliverFillRemaining(
-                child: Center(child: Text('Error: $e')),
-              ),
+              error: (e, _) { logError('wallet', e); return SliverFillRemaining(child: Center(child: Text(friendlyError(e)))); },
               data: (data) {
-                final list = (data['transactions'] as List)
-                    .map((e) => WalletTransaction.fromJson(e))
-                    .toList();
+                final rawList = (data['transactions'] as List).cast<Map<String, dynamic>>();
+                final filteredRaw = _activeFilters.isEmpty ? rawList : rawList.where((r) => matchesAllFilters(r, _activeFilters)).toList();
+                final list = filteredRaw.map(WalletTransaction.fromJson).toList();
 
                 if (list.isEmpty) {
                   return SliverFillRemaining(
@@ -535,9 +559,10 @@ class _BalanceHero extends StatelessWidget {
   final double balance;
   final bool loading;
   final bool isNegative;
+  final AppUser? user;
   final VoidCallback onAddMoney;
   const _BalanceHero({required this.balance, required this.loading,
-      required this.isNegative, required this.onAddMoney});
+      required this.isNegative, this.user, required this.onAddMoney});
 
   @override
   Widget build(BuildContext context) {
@@ -594,6 +619,27 @@ class _BalanceHero extends StatelessWidget {
                 ),
               ),
         const SizedBox(height: 20),
+        // Tier badge
+        if (user?.tierName != null) ...[
+          Builder(builder: (_) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.workspace_premium, size: 14, color: Colors.white),
+                const SizedBox(width: 5),
+                Text(user!.tierName!,
+                    style: const TextStyle(color: Colors.white,
+                        fontSize: 12, fontWeight: FontWeight.bold)),
+              ]),
+            );
+          }),
+          const SizedBox(height: 12),
+        ],
         Row(children: [
           Expanded(child: _HeroBtn(
             icon: Icons.add_circle_outline,

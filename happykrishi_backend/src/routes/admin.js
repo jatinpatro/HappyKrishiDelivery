@@ -3,6 +3,7 @@ const c = require('../controllers/adminController');
 const ac = require('../controllers/analyticsController');
 const sc = require('../controllers/salesmanController');
 const rc = require('../controllers/rewardsController');
+const tc = require('../controllers/tiersController');
 const oc = require('../controllers/orderController');
 const { authenticate } = require('../middleware/auth');const { requireRole } = require('../middleware/role');
 const multer = require('multer');
@@ -39,7 +40,10 @@ router.get('/products', c.adminListProducts);
 router.get('/users', c.listUsers);
 router.post('/users', requireRole('admin'), c.createCustomer);
 router.put('/users/:id/toggle', requireRole('admin'), c.toggleCustomer);
+router.put('/users/:id', requireRole('admin'), c.updateCustomer);
 router.post('/users/:id/reset-password', requireRole('admin'), c.resetCustomerPassword);
+router.get('/users/:id/wallet-history', c.getCustomerWalletHistory);
+router.get('/wallet-audit', c.getAllWalletTransactions);
 router.get('/customers/:id/addresses', (req, res) => {
   const db = require('../config/database');
   const addresses = db.prepare('SELECT * FROM addresses WHERE user_id = ? ORDER BY is_default DESC, id ASC').all(parseInt(req.params.id));
@@ -143,5 +147,12 @@ router.post('/rewards/approve', requireRole('admin'), rc.approvePayouts);
 router.post('/rewards/reject', requireRole('admin'), rc.rejectPayouts);
 router.get('/rewards/payouts', rc.listPayouts);
 router.get('/rewards/products-and-categories', rc.getProductsForRules);
+
+// Customer tiers
+router.get('/tiers', tc.listTiers);
+router.post('/tiers', requireRole('admin'), tc.createTier);
+router.put('/tiers/:id', requireRole('admin'), tc.updateTier);
+router.delete('/tiers/:id', requireRole('admin'), tc.deleteTier);
+router.patch('/customers/:id/tier', requireRole('admin'), tc.assignTier);
 
 module.exports = router;

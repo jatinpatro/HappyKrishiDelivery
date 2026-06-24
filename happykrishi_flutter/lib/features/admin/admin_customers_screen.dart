@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import 'admin_tiers_screen.dart' show tierColor;
+import '../../core/widgets/active_filter.dart';
+import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/utils/error_handler.dart';
 
 final adminCustomersProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
@@ -37,6 +43,12 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
   String _walletFilter = '';   // negative | zero | positive | low | ''
   String _sortFilter   = 'name'; // name | recent | wallet_asc | wallet_desc
   String _activeFilter = '';   // '' | 0 | 1
+  List<ActiveFilter> _chipFilters = [];
+
+  static const _filterDefs = [
+    FilterDefinition(field: 'tier_name', label: 'Tier', type: FilterType.text),
+    FilterDefinition(field: 'wallet_balance', label: 'Wallet', type: FilterType.number),
+  ];
 
   String get _providerKey => '$_search|$_walletFilter|$_sortFilter|$_activeFilter';
 
@@ -68,6 +80,13 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Customers'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(56),
           child: Padding(
@@ -170,6 +189,12 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
                 }),
               ),
             ]),
+            FilterChipBar(
+              availableFilters: _filterDefs,
+              activeFilters: _chipFilters,
+              onAdd: (f) => setState(() => _chipFilters = [..._chipFilters.where((e) => e.field != f.field), f]),
+              onRemove: (f) => setState(() => _chipFilters = _chipFilters.where((e) => e.field != f.field).toList()),
+            ),
           ]),
         ),
         const Divider(height: 1),
@@ -178,10 +203,11 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
         Expanded(
           child: customers.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Error: $e')),
+            error: (e, _) { logError('admin-customers', e); return Center(child: Text(friendlyError(e))); },
             data: (data) {
-              final list = (data['users'] as List? ?? [])
+              final rawList = (data['users'] as List? ?? [])
                   .cast<Map<String, dynamic>>();
+              final list = _chipFilters.isEmpty ? rawList : rawList.where((c) => matchesAllFilters(c, _chipFilters)).toList();
               if (list.isEmpty) {
                 return Center(
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -286,6 +312,72 @@ class _CustomerCard extends ConsumerStatefulWidget {
 class _CustomerCardState extends ConsumerState<_CustomerCard> {
   bool _toggling = false;
 
+  Future<void> _viewWalletHistory() async {
+    final c = widget.customer;
+    final id = c['id'] as int;
+    final name = c['name'] as String;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _WalletHistorySheet(customerId: id, customerName: name),
+    );
+  }
+
+  Future<void> _editCustomer() async {
+    final c = widget.customer;
+    final nameCtrl  = TextEditingController(text: c['name']  as String? ?? '');
+    final phoneCtrl = TextEditingController(text: c['phone'] as String? ?? '');
+    final emailCtrl = TextEditingController(text: c['email'] as String? ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Customer'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'Phone (10 digits)', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'Email (optional)', border: OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ref.read(dioProvider).put(
+        Endpoints.adminUpdateCustomer(c['id'] as int),
+        data: {
+          'name':  nameCtrl.text.trim(),
+          'phone': phoneCtrl.text.trim(),
+          'email': emailCtrl.text.trim().isEmpty ? null : emailCtrl.text.trim(),
+        },
+      );
+      widget.onChanged();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Customer updated'), backgroundColor: Color(0xFF2E7D32)));
+    } on DioException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.response?.data['error'] ?? 'Failed to update')));
+    }
+  }
+
+  void _call() => launchUrl(Uri.parse('tel:+91${widget.customer['phone']}'));
+  void _whatsapp() => launchUrl(Uri.parse('https://wa.me/91${widget.customer['phone']}'), mode: LaunchMode.externalApplication);
+  void _email() {
+    final email = widget.customer['email'] as String?;
+    if (email != null && email.isNotEmpty) launchUrl(Uri.parse('mailto:$email'));
+  }
+
   Future<void> _toggleActive() async {
     final id = widget.customer['id'] as int;
     final name = widget.customer['name'] as String;
@@ -317,14 +409,103 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
     try {
       await ref.read(dioProvider).put(Endpoints.adminToggleCustomer(id));
       widget.onChanged();
-    } catch (e) {
+    } catch (e, st) {
+      logError('admin-customers', e, st);
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _toggling = false);
     }
+  }
+
+  Future<void> _setTier() async {
+    final id = widget.customer['id'] as int;
+    int? selectedTierId = widget.customer['tier_id'] as int?;
+
+    // Show dialog immediately with a loading state, then populate tiers
+    List<Map<String, dynamic>> tiers = [];
+    String? fetchError;
+    bool loading = true;
+
+    // ignore: use_build_context_synchronously
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDs) {
+          // Trigger fetch on first build
+          if (loading && tiers.isEmpty && fetchError == null) {
+            ref.read(dioProvider).get(Endpoints.adminTiers).then((res) {
+              final fetched = List<Map<String, dynamic>>.from(res.data['tiers'] as List);
+              setDs(() { tiers = fetched; loading = false; });
+            }).catchError((e) {
+              setDs(() { fetchError = e.toString(); loading = false; });
+            });
+          }
+          return AlertDialog(
+            title: Text('Set Tier: ${widget.customer['name']}'),
+            content: loading
+                ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+                : fetchError != null
+                    ? Text('Failed to load tiers: $fetchError', style: const TextStyle(color: Colors.red))
+                    : SingleChildScrollView(
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          ListTile(
+                            dense: true,
+                            leading: Radio<int?>(
+                              value: null,
+                              groupValue: selectedTierId,
+                              onChanged: (v) => setDs(() => selectedTierId = v),
+                            ),
+                            title: const Text('No tier'),
+                            onTap: () => setDs(() => selectedTierId = null),
+                          ),
+                          ...tiers.map((t) {
+                            final tid = t['id'] as int;
+                            return ListTile(
+                              dense: true,
+                              leading: Radio<int?>(
+                                value: tid,
+                                groupValue: selectedTierId,
+                                onChanged: (v) => setDs(() => selectedTierId = v),
+                              ),
+                              title: Text(t['name'] as String),
+                              subtitle: Text(
+                                'Limit: ₹${(t['max_wallet_negative_limit'] as num).toStringAsFixed(0)}  •  ${(t['cashback_multiplier'] as num).toStringAsFixed(1)}× cashback',
+                              ),
+                              onTap: () => setDs(() => selectedTierId = tid),
+                            );
+                          }),
+                        ]),
+                      ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              if (!loading && fetchError == null)
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    try {
+                      await ref.read(dioProvider).patch(
+                        Endpoints.adminAssignCustomerTier(id),
+                        data: {'tier_id': selectedTierId},
+                      );
+                      widget.onChanged();
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Tier updated'), backgroundColor: Color(0xFF2E7D32)));
+                    } on DioException catch (e) {
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(e.response?.data['error'] ?? 'Failed to set tier')));
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _resetPassword() async {
@@ -418,6 +599,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
     final balance = (c['wallet_balance'] as num).toDouble();
     final isActive = (c['is_active'] as int) == 1;
     final joined = (c['created_at'] as String).substring(0, 10);
+    final hasApp = (c['has_app'] as int? ?? 0) == 1;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -470,6 +652,33 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
                             color: Colors.red.shade700,
                             fontWeight: FontWeight.bold)),
                   ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: hasApp ? Colors.green.shade50 : Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: hasApp ? Colors.green.shade300 : Colors.blue.shade300,
+                    ),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(
+                      hasApp ? Icons.android : Icons.web,
+                      size: 11,
+                      color: hasApp ? Colors.green.shade700 : Colors.blue.shade700,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      hasApp ? 'App' : 'Web',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: hasApp ? Colors.green.shade700 : Colors.blue.shade700,
+                      ),
+                    ),
+                  ]),
+                ),
               ]),
               const SizedBox(height: 2),
               Text('+91 $phone',
@@ -495,11 +704,63 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
                     style:
                         const TextStyle(fontSize: 11, color: Colors.grey)),
               ]),
+              if (c['tier_name'] != null) ...[
+                const SizedBox(height: 5),
+                Builder(builder: (_) {
+                  final tc = tierColor(c['tier_color'] as String?);
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: tc.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: tc.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.workspace_premium_outlined, size: 11, color: tc),
+                      const SizedBox(width: 3),
+                      Text(c['tier_name'] as String,
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: tc)),
+                    ]),
+                  );
+                }),
+              ],
+              const SizedBox(height: 6),
+              // Contact action buttons
+              Row(children: [
+                _ContactBtn(Icons.phone, Colors.green, _call),
+                const SizedBox(width: 6),
+                _ContactBtn(Icons.chat, const Color(0xFF25D366), _whatsapp),
+                if (email != null && email.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  _ContactBtn(Icons.email_outlined, Colors.blue, _email),
+                ],
+              ]),
             ]),
           ),
 
           // Actions column
           Column(children: [
+            // Wallet history
+            IconButton(
+              icon: const Icon(Icons.account_balance_wallet_outlined,
+                  color: Color(0xFF1565C0), size: 20),
+              tooltip: 'Wallet History',
+              onPressed: _viewWalletHistory,
+            ),
+            // Edit name/email/phone
+            IconButton(
+              icon: const Icon(Icons.edit_outlined,
+                  color: Color(0xFF2E7D32), size: 20),
+              tooltip: 'Edit Customer',
+              onPressed: _editCustomer,
+            ),
+            // Set Tier
+            IconButton(
+              icon: const Icon(Icons.workspace_premium_outlined,
+                  color: Color(0xFF6A1B9A), size: 20),
+              tooltip: 'Set Tier',
+              onPressed: _setTier,
+            ),
             // Reset password
             IconButton(
               icon: const Icon(Icons.lock_reset,
@@ -687,6 +948,166 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
           ),
         ]),
       ),
+    );
+  }
+}
+
+class _ContactBtn extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  const _ContactBtn(this.icon, this.color, this.onTap);
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.35)),
+          ),
+          child: Icon(icon, size: 15, color: color),
+        ),
+      );
+}
+
+// ── Customer wallet history sheet ─────────────────────────────────────────────
+
+class _WalletHistorySheet extends ConsumerStatefulWidget {
+  final int customerId;
+  final String customerName;
+  const _WalletHistorySheet({required this.customerId, required this.customerName});
+
+  @override
+  ConsumerState<_WalletHistorySheet> createState() => _WalletHistorySheetState();
+}
+
+class _WalletHistorySheetState extends ConsumerState<_WalletHistorySheet> {
+  List<Map<String, dynamic>> _txns = [];
+  Map<String, dynamic>? _customer;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await ref.read(dioProvider).get(
+        Endpoints.adminCustomerWalletHistory(widget.customerId),
+      );
+      setState(() {
+        _customer = res.data['customer'] as Map<String, dynamic>?;
+        _txns = List<Map<String, dynamic>>.from(res.data['transactions'] as List);
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  Color _txnColor(Map<String, dynamic> t) {
+    final type = t['type'] as String;
+    final ref = t['reference_type'] as String? ?? '';
+    if (type == 'debit') return Colors.red.shade600;
+    if (type == 'discount' && ref == 'reward') return const Color(0xFF6A1B9A);
+    if (type == 'adjustment') return Colors.orange;
+    return const Color(0xFF2E7D32);
+  }
+
+  IconData _txnIcon(Map<String, dynamic> t) {
+    final type = t['type'] as String;
+    final ref = t['reference_type'] as String? ?? '';
+    if (type == 'debit' && ref == 'order') return Icons.shopping_cart_outlined;
+    if (type == 'credit' && ref == 'topup') return Icons.payments_outlined;
+    if (type == 'refund') return Icons.undo;
+    if (type == 'discount') return Icons.card_giftcard;
+    if (type == 'adjustment') return Icons.scale_outlined;
+    if (ref == 'admin') return Icons.admin_panel_settings_outlined;
+    return Icons.account_balance_wallet_outlined;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final balance = (_customer?['wallet_balance'] as num?)?.toDouble();
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(height: 8),
+        Container(width: 40, height: 4,
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(widget.customerName,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              if (balance != null)
+                Text('Balance: ₹${balance.toStringAsFixed(2)}',
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: balance < 0 ? Colors.red : const Color(0xFF2E7D32),
+                        fontWeight: FontWeight.w600)),
+            ])),
+            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+          ]),
+        ),
+        const Divider(height: 1),
+        if (_loading)
+          const Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())
+        else if (_error != null)
+          Padding(padding: const EdgeInsets.all(24), child: Text(_error!, style: const TextStyle(color: Colors.red)))
+        else if (_txns.isEmpty)
+          const Padding(padding: EdgeInsets.all(32),
+              child: Text('No transactions yet', style: TextStyle(color: Colors.grey)))
+        else
+          Flexible(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+              itemCount: _txns.length,
+              itemBuilder: (_, i) {
+                final t = _txns[i];
+                final amount = (t['amount'] as num).toDouble();
+                final color = _txnColor(t);
+                final isCredit = ['credit', 'refund', 'discount'].contains(t['type']);
+                return ListTile(
+                  dense: true,
+                  leading: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: color.withValues(alpha: 0.1),
+                    child: Icon(_txnIcon(t), size: 16, color: color),
+                  ),
+                  title: Text(
+                    t['description'] as String? ?? t['type'] as String,
+                    style: const TextStyle(fontSize: 13),
+                    maxLines: 2, overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    (t['created_at'] as String).substring(0, 16).replaceFirst('T', ' '),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  trailing: Column(mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(
+                      '${isCredit ? '+' : '-'}₹${amount.abs().toStringAsFixed(2)}',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color),
+                    ),
+                    Text(
+                      '₹${(t['balance_after'] as num).toStringAsFixed(2)}',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ]),
+                );
+              },
+            ),
+          ),
+      ]),
     );
   }
 }

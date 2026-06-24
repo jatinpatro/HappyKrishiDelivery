@@ -268,6 +268,18 @@ function runMigrations() {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS customer_tiers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '#607D8B',
+      min_wallet_balance REAL NOT NULL DEFAULT 0,
+      max_wallet_negative_limit REAL NOT NULL DEFAULT 0,
+      cashback_multiplier REAL NOT NULL DEFAULT 1.0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS pincode_cache (
       pincode TEXT PRIMARY KEY,
       lat REAL, lng REAL,
@@ -323,12 +335,26 @@ function runMigrations() {
     ic.run('geofence_radius_m', '500');
     ic.run('password_change_fee', '29');
     ic.run('password_change_interval_days', '30');
+    ic.run('max_wallet_negative_limit', '0');
     ic.run('upi_id', 'happykrishi@upi');
     ic.run('upi_name', 'HappyKrishi Farm');
     ic.run('upi_qr_image_url', '');
     ic.run('cash_payment_address', 'Visit our farm or pay to our agent');
     ic.run('salesmen_list', 'Tarini,Abhi,Jatin,Sunil');
     ic.run('default_salesman_id', ''); // user ID of default salesman — empty = none
+  }
+
+  // Seed default customer tiers (only if empty)
+  const tierCount = db.prepare('SELECT COUNT(*) as c FROM customer_tiers').get();
+  if (tierCount.c === 0) {
+    const it = db.prepare(
+      'INSERT INTO customer_tiers (name, color, min_wallet_balance, max_wallet_negative_limit, cashback_multiplier, sort_order) VALUES (?,?,?,?,?,?)'
+    );
+    it.run('Restricted', '#DC2626', 0,    0,    1.0, -1);
+    it.run('Normal',     '#78909C', 0,    100,  1.0,  0);
+    it.run('Silver',     '#546E7A', 200,  200,  1.2,  1);
+    it.run('Gold',       '#F9A825', 500,  500,  1.5,  2);
+    it.run('Platinum',   '#6A1B9A', 1000, 1000, 2.0,  3);
   }
 
   // Seed admin user (only once)
@@ -373,7 +399,25 @@ try { db.exec('ALTER TABLE pincode_cache ADD COLUMN min_order_amount REAL'); } c
 try { db.exec('ALTER TABLE pincode_cache ADD COLUMN allowed_product_ids TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE pincode_cache ADD COLUMN custom_delivery_charge REAL'); } catch (_) {}
 try { db.exec('ALTER TABLE deliveries ADD COLUMN updated_at TEXT'); } catch (_) {}
-// Unique email index
+try { db.exec('ALTER TABLE users ADD COLUMN tier_id INTEGER REFERENCES customer_tiers(id)'); } catch (_) {}
+try { db.exec("ALTER TABLE customer_tiers ADD COLUMN color TEXT NOT NULL DEFAULT '#607D8B'"); } catch (_) {}
+try { db.exec("ALTER TABLE customer_tiers ADD COLUMN min_wallet_balance REAL NOT NULL DEFAULT 0"); } catch (_) {}
+
+// One-time: migrate existing tiers to have min_wallet_balance + update Normal limit + add Restricted
+try {
+  const allZero = db.prepare('SELECT COUNT(*) as c FROM customer_tiers WHERE min_wallet_balance > 0').get().c === 0;
+  if (allZero) {
+    db.prepare("UPDATE customer_tiers SET min_wallet_balance=0,    max_wallet_negative_limit=100  WHERE name='Normal'").run();
+    db.prepare("UPDATE customer_tiers SET min_wallet_balance=200,  max_wallet_negative_limit=200  WHERE name='Silver'").run();
+    db.prepare("UPDATE customer_tiers SET min_wallet_balance=500,  max_wallet_negative_limit=500  WHERE name='Gold'").run();
+    db.prepare("UPDATE customer_tiers SET min_wallet_balance=1000, max_wallet_negative_limit=1000 WHERE name='Platinum'").run();
+  }
+  const hasRestricted = db.prepare("SELECT id FROM customer_tiers WHERE name='Restricted'").get();
+  if (!hasRestricted) {
+    db.prepare("INSERT OR IGNORE INTO customer_tiers (name,color,min_wallet_balance,max_wallet_negative_limit,cashback_multiplier,sort_order) VALUES (?,?,?,?,?,?)")
+      .run('Restricted', '#DC2626', 0, 0, 1.0, -1);
+  }
+} catch (_) {}
 try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email) WHERE email IS NOT NULL'); } catch (_) {}
 
 // ── Boot-time schema integrity check ─────────────────────────────────────────
@@ -466,5 +510,8 @@ try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email
     console.error('[DB] Schema check failed (non-fatal):', e.message);
   }
 })();
+
+// Add updated_at to salesman_settlements for acknowledgement timestamp
+try { db.exec('ALTER TABLE salesman_settlements ADD COLUMN updated_at TEXT'); } catch (_) {}
 
 module.exports = db;

@@ -7,6 +7,9 @@ import '../../core/api/endpoints.dart';
 import '../../core/services/pdf_service.dart';
 import '../orders/order_detail_screen.dart' show orderDetailProvider;
 import 'place_order_for_customer_screen.dart';
+import '../../core/widgets/active_filter.dart';
+import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/utils/error_handler.dart';
 
 final adminOrdersProvider = FutureProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, key) async {
   final parts = key.split('|');
@@ -59,6 +62,13 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
   late DateTime _dateTo;
   String _search = '';
   final _searchCtrl = TextEditingController();
+  List<ActiveFilter> _activeFilters = [];
+
+  static const _filterDefs = [
+    FilterDefinition(field: 'final_amount', label: 'Amount', type: FilterType.number),
+    FilterDefinition(field: 'city', label: 'City', type: FilterType.text),
+    FilterDefinition(field: 'agent_name', label: 'Agent', type: FilterType.text),
+  ];
 
   @override
   void initState() {
@@ -127,6 +137,11 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
         title: const Text('Orders'),
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
           IconButton(
             icon: const Icon(Icons.download_outlined),
             tooltip: 'Download Report',
@@ -276,6 +291,13 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
               selectedId: _salesmanId,
               onChanged: (id) => setState(() => _salesmanId = id),
             ),
+            const SizedBox(height: 10),
+            FilterChipBar(
+              availableFilters: _filterDefs,
+              activeFilters: _activeFilters,
+              onAdd: (f) => setState(() => _activeFilters = [..._activeFilters.where((e) => e.field != f.field), f]),
+              onRemove: (f) => setState(() => _activeFilters = _activeFilters.where((e) => e.field != f.field).toList()),
+            ),
           ]),
         ),
         const Divider(height: 1),
@@ -283,32 +305,37 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
         // ── Order list ───────────────────────────────────────────────────────
         Expanded(
           child: orders.when(
-            data: (list) => list.isEmpty
-                ? _EmptyState(statusFilter: _statusFilter)
-                : RefreshIndicator(
-                    onRefresh: () async => ref.invalidate(adminOrdersProvider(_providerKey)),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                      itemCount: list.length,
-                      itemBuilder: (_, i) => _AdminOrderTile(
-                        order: list[i],
-                        onRefresh: () => ref.invalidate(adminOrdersProvider(_providerKey)),
+            data: (list) {
+              final filtered = _activeFilters.isEmpty
+                  ? list
+                  : list.where((o) => matchesAllFilters(o, _activeFilters)).toList();
+              return filtered.isEmpty
+                  ? _EmptyState(statusFilter: _statusFilter)
+                  : RefreshIndicator(
+                      onRefresh: () async => ref.invalidate(adminOrdersProvider(_providerKey)),
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                        itemCount: filtered.length,
+                        itemBuilder: (_, i) => _AdminOrderTile(
+                          order: filtered[i],
+                          onRefresh: () => ref.invalidate(adminOrdersProvider(_providerKey)),
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+            },
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
+            error: (e, _) { logError('admin-orders', e); return Center(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                 const Icon(Icons.error_outline, size: 48, color: Colors.red),
                 const SizedBox(height: 12),
-                Text('$e', textAlign: TextAlign.center),
+                Text(friendlyError(e), textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: () => ref.invalidate(adminOrdersProvider(_providerKey)),
                   child: const Text('Retry'),
                 ),
               ]),
-            ),
+            ); },
           ),
         ),
       ]),
@@ -646,8 +673,8 @@ class _OrderExpandedDetail extends ConsumerWidget {
         padding: EdgeInsets.symmetric(vertical: 12),
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       ),
-      error: (e, _) => Text('Error: $e',
-          style: const TextStyle(color: Colors.red, fontSize: 12)),
+      error: (e, _) { logError('admin-order-detail', e); return Text(friendlyError(e),
+          style: const TextStyle(color: Colors.red, fontSize: 12)); },
       data: (d) {
         final items    = (d['items'] as List).cast<Map<String, dynamic>>();
         final delivery = d['delivery'] as Map<String, dynamic>?;
@@ -803,8 +830,9 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
         data: {'status': newStatus},
       );
       widget.onRefresh();
-    } catch (e) {
-      if (mounted) _snack('$e');
+    } catch (e, st) {
+      logError('admin-orders', e, st);
+      if (mounted) _snack(friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -880,10 +908,11 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                     backgroundColor: const Color(0xFF2E7D32),
                   ));
                 }
-              } catch (e) {
+              } catch (e, st) {
+                logError('admin-orders', e, st);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed: $e')));
+                      SnackBar(content: Text(friendlyError(e))));
                 }
               }
             },
@@ -959,8 +988,9 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
       );
       widget.onRefresh();
       if (mounted) _snack('Order cancelled. Refund sent to wallet.', color: const Color(0xFF2E7D32));
-    } catch (e) {
-      if (mounted) _snack('$e');
+    } catch (e, st) {
+      logError('admin-orders', e, st);
+      if (mounted) _snack(friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -988,8 +1018,9 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
       await ref.read(dioProvider).post(Endpoints.adminMarkCollected(widget.order['id'] as int));
       widget.onRefresh();
       if (mounted) _snack('Pickup marked as collected ✅', color: const Color(0xFF2E7D32));
-    } catch (e) {
-      if (mounted) _snack('$e');
+    } catch (e, st) {
+      logError('admin-orders', e, st);
+      if (mounted) _snack(friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1026,8 +1057,9 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
     try {
       await dio.post(Endpoints.adminAssignAgent(widget.order['id'] as int), data: {'agent_id': picked});
       widget.onRefresh();
-    } catch (e) {
-      if (mounted) _snack('$e');
+    } catch (e, st) {
+      logError('admin-orders', e, st);
+      if (mounted) _snack(friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

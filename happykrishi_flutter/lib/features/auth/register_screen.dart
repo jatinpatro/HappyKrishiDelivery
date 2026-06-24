@@ -40,15 +40,29 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Complete Profile')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: Column(children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
           const SizedBox(height: 16),
+          Image.asset('assets/images/logo.png', height: 80, width: 80, fit: BoxFit.contain),
+          const SizedBox(height: 10),
+          const Text('HappyKrishi',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold,
+                  color: Color(0xFF2E7D32), letterSpacing: 0.3)),
+          const Text('Farm Fresh Delivery',
+              style: TextStyle(fontSize: 13, color: Colors.grey)),
+          const SizedBox(height: 28),
           TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'Your Name *')),
           const SizedBox(height: 16),
           TextField(controller: _emailCtrl, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email (optional)')),
           const SizedBox(height: 32),
-          ElevatedButton(onPressed: _loading ? null : _save, child: _loading ? const CircularProgressIndicator(color: Colors.white) : const Text('Get Started')),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _loading ? null : _save,
+              child: _loading ? const CircularProgressIndicator(color: Colors.white) : const Text('Get Started'),
+            ),
+          ),
         ]),
       ),
     );

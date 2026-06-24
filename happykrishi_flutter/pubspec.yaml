@@ -53,6 +53,9 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   url_launcher: ^6.3.2
+  flutter_native_splash: ^2.4.8
+  firebase_core: ^4.11.0
+  firebase_messaging: ^16.4.1
 
 dev_dependencies:
   flutter_test:
@@ -72,6 +75,18 @@ flutter_launcher_icons:
     image_path: assets/images/logo.png
   image_path: assets/images/logo.png
   min_sdk_android: 21
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: assets/images/splash_logo.png
+  color_dark: "#1B5E20"
+  image_dark: assets/images/splash_logo.png
+  android_12:
+    color: "#FFFFFF"
+    image: assets/images/splash_logo.png
+    color_dark: "#1B5E20"
+    image_dark: assets/images/splash_logo.png
+  web: false
 
 flutter:
   uses-material-design: true

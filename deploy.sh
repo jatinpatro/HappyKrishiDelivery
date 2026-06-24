@@ -12,8 +12,9 @@ REMOTE_HOST="88.222.212.244"
 BACKEND_DIR="/root/HAPPYKRISHI_DELIVERY"
 WEB_DIR="/root/HAPPYKRISHI_DELIVERY_WEB"
 API_PORT="4000"
-API_BASE_URL="http://${REMOTE_HOST}:${API_PORT}"
-WEB_PATH="/hkdelivery"
+API_BASE_URL="https://delivery.happykrishi.com"
+WS_BASE_URL="wss://delivery.happykrishi.com"
+WEB_PATH=""
 
 FLUTTER_DIR="$(dirname "$0")/happykrishi_flutter"
 BACKEND_SRC="$(dirname "$0")/happykrishi_backend"
@@ -70,8 +71,8 @@ cd "$FLUTTER_DIR"
 flutter build web \
   --release \
   --dart-define=API_BASE_URL="${API_BASE_URL}" \
-  --dart-define=WS_BASE_URL="ws://${REMOTE_HOST}:${API_PORT}" \
-  --base-href="${WEB_PATH}/"
+  --dart-define=WS_BASE_URL="${WS_BASE_URL}" \
+  --base-href="/"
 log "✓ Flutter web built"
 
 ##################################
@@ -81,7 +82,7 @@ log "Building Flutter APK (API: ${API_BASE_URL})..."
 flutter build apk \
   --release \
   --dart-define=API_BASE_URL="${API_BASE_URL}" \
-  --dart-define=WS_BASE_URL="ws://${REMOTE_HOST}:${API_PORT}"
+  --dart-define=WS_BASE_URL="${WS_BASE_URL}"
 log "✓ APK built: build/app/outputs/flutter-apk/app-release.apk"
 cd - > /dev/null
 
@@ -104,6 +105,7 @@ rsync -az --delete \
   --exclude logs \
   --exclude '*.pid' \
   --exclude 'data/' \
+  --exclude 'uploads/' \
   -e "ssh ${SSH_OPTS}" \
   "${BACKEND_SRC}/" \
   ${REMOTE_USER}@${REMOTE_HOST}:${BACKEND_DIR}/
@@ -238,43 +240,16 @@ ENDSSH
 log "✓ Backend deployed and running"
 
 ##################################
-# CONFIGURE NGINX (once only)
+# CONFIGURE NGINX
 ##################################
 log "Configuring nginx..."
 ssh $SSH_OPTS ${REMOTE_USER}@${REMOTE_HOST} <<'ENDSSH'
 set -e
-if ! grep -q "/hkdelivery" /etc/nginx/sites-enabled/default; then
-  echo "[Server] Adding /hkdelivery to nginx..."
-  python3 - <<'PYEOF'
-with open('/etc/nginx/sites-enabled/default', 'r') as f:
-    content = f.read()
-new_locations = """
-    location /hkdelivery {
-        alias /root/HAPPYKRISHI_DELIVERY_WEB;
-        try_files $uri $uri/ /hkdelivery/index.html;
-        index index.html;
-    }
-    location /hkdelivery-api/ {
-        proxy_pass http://127.0.0.1:4000/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_cache_bypass $http_upgrade;
-    }
-"""
-lines = content.split('\n')
-for i in range(len(lines)-1, -1, -1):
-    if lines[i].strip() == '}':
-        lines.insert(i, new_locations)
-        break
-with open('/etc/nginx/sites-enabled/default', 'w') as f:
-    f.write('\n'.join(lines))
-print("nginx config updated")
-PYEOF
+# Ensure delivery site config exists (created once via setup_domains.sh)
+if [ ! -f /etc/nginx/sites-enabled/happykrishi-delivery ]; then
+  ln -sf /etc/nginx/sites-available/happykrishi-delivery /etc/nginx/sites-enabled/
 fi
-# Always ensure /root is executable by nginx
+# Ensure web root is readable
 chmod o+x /root
 chmod -R o+rX /root/HAPPYKRISHI_DELIVERY_WEB
 nginx -t && systemctl reload nginx
@@ -290,9 +265,9 @@ log "═════════════════════════
 log "✅  DEPLOYMENT COMPLETE"
 log "════════════════════════════════════════════════"
 log ""
-log "  🌐  Web App:    http://${REMOTE_HOST}${WEB_PATH}/"
-log "  📱  APK:        http://${REMOTE_HOST}${WEB_PATH}/happykrishi-delivery.apk"
-log "  🔌  Backend:    http://${REMOTE_HOST}:${API_PORT}"
+log "  🌐  Web App:    https://delivery.happykrishi.com"
+log "  📱  APK:        https://delivery.happykrishi.com/happykrishi-delivery.apk"
+log "  🔌  Backend:    https://delivery.happykrishi.com/api/"
 log ""
 log "  Local DB backups: ${LOCAL_DB_BACKUP_DIR}/"
 log "  Latest backup:    ${LOCAL_BACKUP:-none}"

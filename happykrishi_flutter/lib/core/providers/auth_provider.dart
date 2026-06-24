@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../api/dio_client.dart';
 import '../api/endpoints.dart';
 import '../models/models.dart';
+import '../services/fcm_service.dart';
 
 final dioProvider = Provider<Dio>((ref) => buildDioClient());
 
@@ -52,6 +53,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   void setUserFromToken(String token, AppUser user) {
     saveToken(token);
     state = AuthState(user: user, isInitialized: true);
+    _registerFcmToken();
+  }
+
+  Future<void> _registerFcmToken() async {
+    try {
+      final fcmToken = await getFcmToken();
+      if (fcmToken != null) {
+        await _dio.post(Endpoints.registerFcmToken, data: {'fcm_token': fcmToken});
+      }
+    } catch (_) {}
   }
 
   // Update user profile without changing the stored token

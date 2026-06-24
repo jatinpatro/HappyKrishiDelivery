@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/utils/error_handler.dart';
 
 final agentOrderProvider = FutureProvider.autoDispose<Map<String, dynamic>?>((ref) async {
   final dio = ref.read(dioProvider);
@@ -40,7 +41,7 @@ class AgentHomeScreen extends ConsumerWidget {
               ]))
             : _ActiveDeliveryCard(data: data),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) { logError('agent-home', e); return Center(child: Text(friendlyError(e))); },
       ),
     );
   }
@@ -106,8 +107,9 @@ class _ActiveDeliveryCard extends ConsumerWidget {
       final dio = ref.read(dioProvider);
       await dio.put(Endpoints.markPicked(deliveryId));
       ref.invalidate(agentOrderProvider);
-    } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } catch (e, st) {
+      logError('agent-home', e, st);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 }

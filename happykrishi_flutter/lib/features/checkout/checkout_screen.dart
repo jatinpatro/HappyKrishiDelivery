@@ -7,6 +7,7 @@ import '../../core/providers/cart_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../info/app_info_screen.dart';
+import '../../core/utils/error_handler.dart';
 
 // Lightweight all-products provider for the pincode rules banner
 final _allProductsProvider = FutureProvider.autoDispose<List<Product>>((ref) async {
@@ -312,7 +313,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final total = subtotal + charge;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Checkout')),
+      appBar: AppBar(
+        title: const Text('Checkout'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/home'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -491,14 +501,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 ),
             ]),
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Column(children: [
-              Text('Error loading addresses: $e'),
-              TextButton.icon(
-                icon: const Icon(Icons.add_location_alt_outlined),
-                label: const Text('Add Address'),
-                onPressed: () => setState(() => _showAddAddressForm = true),
-              ),
-            ]),
+            error: (e, _) {
+              logError('checkout', e);
+              return Column(children: [
+                Text(friendlyError(e)),
+                TextButton.icon(
+                  icon: const Icon(Icons.add_location_alt_outlined),
+                  label: const Text('Add Address'),
+                  onPressed: () => setState(() => _showAddAddressForm = true),
+                ),
+              ]);
+            },
           ),
           const Divider(height: 32),
           ], // end if (delivery)
@@ -713,7 +726,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               );
             }).toList()),
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Text('$e'),
+            error: (e, _) {
+              logError('checkout', e);
+              return Text(friendlyError(e));
+            },
           ),
           const Divider(height: 32),
 
@@ -762,25 +778,70 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           ),
           if ((user?.walletBalance ?? 0) < 0)
             Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Row(children: [
-                  Icon(Icons.block, size: 14, color: Colors.red.shade700),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Cannot place order — wallet balance is negative. Please top up first.',
-                      style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-                    ),
+              padding: const EdgeInsets.only(top: 10),
+              child: Builder(builder: (ctx) {
+                final isRestricted = user?.tierName == 'Restricted';
+                final shortfall = user!.walletBalance.abs();
+                final bgColor = isRestricted ? const Color(0xFFFFF0F0) : const Color(0xFFFFF8E1);
+                final borderColor = isRestricted ? Colors.red.shade300 : Colors.orange.shade300;
+                final iconColor = isRestricted ? Colors.red.shade600 : Colors.orange.shade700;
+
+                return Container(
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: borderColor),
+                    boxShadow: [BoxShadow(color: (isRestricted ? Colors.red : Colors.orange).withValues(alpha: 0.08), blurRadius: 8, offset: const Offset(0, 2))],
                   ),
-                ]),
-              ),
+                  child: Column(children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: iconColor.withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(isRestricted ? Icons.block_rounded : Icons.warning_amber_rounded,
+                              size: 20, color: iconColor),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(
+                            isRestricted ? 'Orders Blocked' : 'Negative Balance',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: iconColor),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            isRestricted
+                                ? 'Your wallet is at ₹${user!.walletBalance.toStringAsFixed(2)}. Top up ₹${shortfall.toStringAsFixed(0)} to restore ordering.'
+                                : 'Balance will be ₹${(user!.walletBalance - total).toStringAsFixed(2)} after this order.',
+                            style: TextStyle(fontSize: 12, color: iconColor.withValues(alpha: 0.85), height: 1.4),
+                          ),
+                        ])),
+                      ]),
+                    ),
+                    if (isRestricted)
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border(top: BorderSide(color: borderColor)),
+                        ),
+                        child: TextButton.icon(
+                          onPressed: () => context.push('/wallet/topup'),
+                          icon: Icon(Icons.add_circle_outline, size: 16, color: iconColor),
+                          label: Text('Top Up Wallet →',
+                              style: TextStyle(color: iconColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 44),
+                            shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.only(bottomLeft: Radius.circular(14), bottomRight: Radius.circular(14))),
+                          ),
+                        ),
+                      ),
+                  ]),
+                );
+              }),
             )
           else if ((user?.walletBalance ?? 0) < total)
             Padding(
@@ -794,7 +855,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: (_loading ||
-                    (user?.walletBalance ?? 0) < 0 ||
+                    (user?.tierName == 'Restricted') ||
                     (_orderType == 'pickup' && _selectedSalesmanId == null) ||
                     (_orderType == 'delivery' && (_fetchingCharge || _selectedAddressId == null)) ||
                     _selectedSlotId == null)

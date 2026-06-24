@@ -18,6 +18,7 @@ router.patch('/profile', authenticate, c.updateProfile);
 router.post('/set-password', authenticate, c.setPassword);           // first-time set
 router.post('/change-password/request-otp', authenticate, c.requestChangePasswordOtp);  // step 1
 router.post('/change-password', authenticate, c.changePassword);     // step 2
+router.post('/fcm-token', authenticate, c.saveFcmToken);
 
 // Dev-only: see latest OTP (only when MSG91_AUTH_KEY is not set)
 router.get('/dev-otp/:phone', (req, res) => {

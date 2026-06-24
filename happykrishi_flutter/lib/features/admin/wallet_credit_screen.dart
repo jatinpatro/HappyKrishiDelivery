@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/utils/error_handler.dart';
 
 final usersProvider = FutureProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, search) async {
   final dio = ref.read(dioProvider);
@@ -37,6 +39,13 @@ class _WalletCreditScreenState extends ConsumerState<WalletCreditScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manage Wallet'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabs,
           indicatorColor: Colors.white,
@@ -90,6 +99,7 @@ class _CreditTabState extends ConsumerState<_CreditTab> {
           content: Text('₹${_amountCtrl.text} credited to ${_selectedUser!['name']} ✅'),
           backgroundColor: const Color(0xFF2E7D32),
         ));
+        ref.invalidate(usersProvider(_search));
         setState(() { _selectedUser = null; _amountCtrl.clear(); _descCtrl.clear(); });
       }
     } on DioException catch (e) {
@@ -111,6 +121,7 @@ class _CreditTabState extends ConsumerState<_CreditTab> {
       selectedUser: _selectedUser,
       onUserSelected: (u) => setState(() => _selectedUser = u),
       onResetPassword: (u) => _showResetPasswordDialog(context, ref, u),
+      onRefresh: () async => ref.invalidate(usersProvider(_search)),
       actionWidget: _selectedUser == null
           ? const SizedBox.shrink()
           : Column(children: [
@@ -171,12 +182,7 @@ class _DeductTabState extends ConsumerState<_DeductTab> {
     }
 
     final balance = ((_selectedUser!['wallet_balance'] as num?)?.toDouble() ?? 0);
-    if (amount > balance) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Insufficient balance. Current: ₹${balance.toStringAsFixed(2)}'),
-      ));
-      return;
-    }
+    // Admin can deduct below zero — no balance check
 
     // Confirm dialog
     final confirmed = await showDialog<bool>(
@@ -219,6 +225,7 @@ class _DeductTabState extends ConsumerState<_DeductTab> {
           content: Text('₹${amount.toStringAsFixed(0)} deducted from ${_selectedUser!['name']}'),
           backgroundColor: Colors.red.shade700,
         ));
+        ref.invalidate(usersProvider(_search));
         setState(() { _selectedUser = null; _amountCtrl.clear(); _reasonCtrl.clear(); _orderRefCtrl.clear(); });
       }
     } on DioException catch (e) {
@@ -240,6 +247,7 @@ class _DeductTabState extends ConsumerState<_DeductTab> {
       selectedUser: _selectedUser,
       onUserSelected: (u) => setState(() => _selectedUser = u),
       onResetPassword: (u) => _showResetPasswordDialog(context, ref, u),
+      onRefresh: () async => ref.invalidate(usersProvider(_search)),
       actionWidget: _selectedUser == null
           ? const SizedBox.shrink()
           : Column(children: [
@@ -293,6 +301,7 @@ class _WalletActionLayout extends StatelessWidget {
   final ValueChanged<Map<String, dynamic>> onUserSelected;
   final ValueChanged<Map<String, dynamic>> onResetPassword;
   final Widget actionWidget;
+  final Future<void> Function() onRefresh;
 
   const _WalletActionLayout({
     required this.searchCtrl,
@@ -303,6 +312,7 @@ class _WalletActionLayout extends StatelessWidget {
     required this.onUserSelected,
     required this.onResetPassword,
     required this.actionWidget,
+    required this.onRefresh,
   });
 
   @override
@@ -322,29 +332,32 @@ class _WalletActionLayout extends StatelessWidget {
           child: users.when(
             data: (list) => list.isEmpty
                 ? const Center(child: Text('No customers found', style: TextStyle(color: Colors.grey)))
-                : ListView.builder(
-                    itemCount: list.length,
-                    itemBuilder: (_, i) {
-                      final u = list[i];
-                      final isSelected = selectedUser?['id'] == u['id'];
-                      return ListTile(
-                        dense: true,
-                        title: Text(u['name'] as String,
-                            style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-                        subtitle: Text('${u['phone']} • ₹${u['wallet_balance']}'),
-                        selected: isSelected,
-                        selectedColor: const Color(0xFF2E7D32),
-                        selectedTileColor: const Color(0xFFE8F5E9),
-                        onTap: () => onUserSelected(u),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.lock_reset, color: Colors.orange, size: 18),
-                          tooltip: 'Reset Password',
-                          onPressed: () => onResetPassword(u),
-                        ),
-                      );
-                    }),
+                : RefreshIndicator(
+                    onRefresh: onRefresh,
+                    child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: list.length,
+                        itemBuilder: (_, i) {
+                          final u = list[i];
+                          final isSelected = selectedUser?['id'] == u['id'];
+                          return ListTile(
+                            dense: true,
+                            title: Text(u['name'] as String,
+                                style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                            subtitle: Text('${u['phone']} • ₹${u['wallet_balance']}'),
+                            selected: isSelected,
+                            selectedColor: const Color(0xFF2E7D32),
+                            selectedTileColor: const Color(0xFFE8F5E9),
+                            onTap: () => onUserSelected(u),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.lock_reset, color: Colors.orange, size: 18),
+                              tooltip: 'Reset Password',
+                              onPressed: () => onResetPassword(u),
+                            ),
+                          );
+                        })),
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Text('$e'),
+            error: (e, _) { logError('admin-wallet', e); return Text(friendlyError(e)); },
           ),
         ),
         actionWidget,

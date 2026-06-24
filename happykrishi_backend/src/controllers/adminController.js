@@ -231,11 +231,7 @@ function debitWallet(req, res) {
 
   const user = db.prepare('SELECT id, name, wallet_balance FROM users WHERE id = ?').get(user_id);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  if (user.wallet_balance < amount) {
-    return res.status(400).json({
-      error: `Insufficient wallet balance. Current: ₹${user.wallet_balance.toFixed(2)}, Requested deduction: ₹${amount}`
-    });
-  }
+  // Admin can deduct below zero — no balance check
 
   const refType = order_id ? 'order' : 'admin';
   const refId = order_id || req.user.id;
@@ -248,30 +244,36 @@ function debitWallet(req, res) {
 function listUsers(req, res) {
   const { search, page = 1, limit = 50, wallet, sort = 'name', is_active } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
-  let where = "role = 'customer'";
+  let where = "u.role = 'customer'";
   const params = [];
 
   if (search) {
-    where += ' AND (name LIKE ? OR phone LIKE ? OR email LIKE ?)';
+    where += ' AND (u.name LIKE ? OR u.phone LIKE ? OR u.email LIKE ?)';
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
-  if (wallet === 'negative')  { where += ' AND wallet_balance < 0'; }
-  if (wallet === 'zero')      { where += ' AND wallet_balance = 0'; }
-  if (wallet === 'positive')  { where += ' AND wallet_balance > 0'; }
-  if (wallet === 'low')       { where += ' AND wallet_balance > 0 AND wallet_balance < 100'; }
-  if (is_active === '1')      { where += ' AND is_active = 1'; }
-  if (is_active === '0')      { where += ' AND is_active = 0'; }
+  if (wallet === 'negative')  { where += ' AND u.wallet_balance < 0'; }
+  if (wallet === 'zero')      { where += ' AND u.wallet_balance = 0'; }
+  if (wallet === 'positive')  { where += ' AND u.wallet_balance > 0'; }
+  if (wallet === 'low')       { where += ' AND u.wallet_balance > 0 AND u.wallet_balance < 100'; }
+  if (is_active === '1')      { where += ' AND u.is_active = 1'; }
+  if (is_active === '0')      { where += ' AND u.is_active = 0'; }
 
-  const orderBy = sort === 'wallet_asc'  ? 'wallet_balance ASC'
-                : sort === 'wallet_desc' ? 'wallet_balance DESC'
-                : sort === 'recent'      ? 'created_at DESC'
-                : 'name';
+  const orderBy = sort === 'wallet_asc'  ? 'u.wallet_balance ASC'
+                : sort === 'wallet_desc' ? 'u.wallet_balance DESC'
+                : sort === 'recent'      ? 'u.created_at DESC'
+                : 'u.name';
 
   const users = db.prepare(`
-    SELECT id, name, phone, email, wallet_balance, is_active, created_at
-    FROM users WHERE ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?
+    SELECT u.id, u.name, u.phone, u.email, u.wallet_balance, u.is_active, u.created_at,
+           u.tier_id, ct.name as tier_name, ct.color as tier_color,
+           ct.max_wallet_negative_limit as tier_neg_limit,
+           ct.cashback_multiplier as tier_cashback_multiplier,
+           CASE WHEN u.fcm_token IS NOT NULL THEN 1 ELSE 0 END as has_app
+    FROM users u
+    LEFT JOIN customer_tiers ct ON ct.id = u.tier_id
+    WHERE ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?
   `).all(...params, parseInt(limit), offset);
-  const total = db.prepare(`SELECT COUNT(*) as c FROM users WHERE ${where}`).get(...params).c;
+  const total = db.prepare(`SELECT COUNT(*) as c FROM users u WHERE ${where}`).get(...params).c;
   res.json({ users, total, page: parseInt(page), limit: parseInt(limit) });
 }
 
@@ -294,15 +296,23 @@ function updateConfig(req, res) {
 }
 
 function listTopupRequests(req, res) {
-  const { status } = req.query; // optional: pending | approved | rejected | all
-  const where = status && status !== 'all' ? `WHERE tr.status = '${status}'` : '';
+  const { status, date_from, date_to } = req.query;
+  const conditions = [];
+  const params = [];
+  if (status && status !== 'all') { conditions.push("tr.status = ?"); params.push(status); }
+  if (date_from) { conditions.push("date(tr.created_at) >= ?"); params.push(date_from); }
+  if (date_to)   { conditions.push("date(tr.created_at) <= ?"); params.push(date_to); }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   const requests = db.prepare(`
-    SELECT tr.*, u.name as user_name, u.phone as user_phone
-    FROM topup_requests tr JOIN users u ON u.id = tr.user_id
+    SELECT tr.*, u.name as user_name, u.phone as user_phone,
+           s.name as collector_name
+    FROM topup_requests tr
+    JOIN users u ON u.id = tr.user_id
+    LEFT JOIN users s ON s.id = CAST(tr.collected_by AS INTEGER)
     ${where}
     ORDER BY tr.created_at DESC
     LIMIT 200
-  `).all();
+  `).all(...params);
 
   // Summary stats
   const summary = db.prepare(`
@@ -457,8 +467,9 @@ function createCustomer(req, res) {
   const finalPhone = phone ? phone.trim() : `email_${Date.now()}`;
 
   const result = db.prepare(
-    "INSERT INTO users (name, phone, email, password_hash, password_set, role) VALUES (?,?,?,?,?,?)"
-  ).run(name.trim(), finalPhone, email ? email.trim().toLowerCase() : null, hash, hash ? 1 : 0, 'customer');
+    "INSERT INTO users (name, phone, email, password_hash, password_set, role, tier_id) VALUES (?,?,?,?,?,?,?)"
+  ).run(name.trim(), finalPhone, email ? email.trim().toLowerCase() : null, hash, hash ? 1 : 0, 'customer',
+    db.prepare("SELECT id FROM customer_tiers WHERE name='Normal' LIMIT 1").get()?.id ?? null);
 
   const user = db.prepare(
     'SELECT id, name, phone, email, wallet_balance, is_active, created_at FROM users WHERE id = ?'
@@ -472,6 +483,36 @@ function toggleCustomer(req, res) {
   const newActive = user.is_active ? 0 : 1;
   db.prepare('UPDATE users SET is_active=? WHERE id=?').run(newActive, user.id);
   res.json({ message: newActive ? `${user.name} activated` : `${user.name} deactivated`, is_active: newActive });
+}
+
+function updateCustomer(req, res) {
+  const customer = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'customer'").get(req.params.id);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+  const { name, email, phone } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+
+  const trimmedEmail = email ? email.trim().toLowerCase() : null;
+  if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+  if (trimmedEmail) {
+    const dup = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(trimmedEmail, customer.id);
+    if (dup) return res.status(400).json({ error: 'Email already in use' });
+  }
+
+  const trimmedPhone = phone ? phone.trim() : customer.phone;
+  if (!/^[0-9]{10}$/.test(trimmedPhone)) {
+    return res.status(400).json({ error: 'Phone must be 10 digits' });
+  }
+  if (trimmedPhone !== customer.phone) {
+    const dup = db.prepare('SELECT id FROM users WHERE phone = ? AND id != ?').get(trimmedPhone, customer.id);
+    if (dup) return res.status(400).json({ error: 'Phone already in use' });
+  }
+
+  db.prepare('UPDATE users SET name=?, email=?, phone=? WHERE id=?').run(name.trim(), trimmedEmail, trimmedPhone, customer.id);
+  const updated = db.prepare('SELECT id, name, phone, email, wallet_balance, is_active FROM users WHERE id=?').get(customer.id);
+  res.json({ message: 'Customer updated', user: updated });
 }
 
 // ── Admin: reset any customer's password ──────────────────────────────────────
@@ -612,9 +653,94 @@ function updateOrderItemWeights(req, res) {
   });
 }
 
+function getCustomerWalletHistory(req, res) {
+  const { page = 1, limit = 50, type, date_from, date_to } = req.query;
+  const customerId = parseInt(req.params.id);
+  const customer = db.prepare("SELECT id, name, phone, wallet_balance FROM users WHERE id=? AND role='customer'").get(customerId);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  let where = 'user_id = ?';
+  const params = [customerId];
+
+  if (type) {
+    switch (type) {
+      case 'topup':    where += " AND type='credit' AND reference_type='topup'";  break;
+      case 'order':    where += " AND type='debit' AND reference_type='order'";   break;
+      case 'refund':   where += " AND type='refund'";                             break;
+      case 'cashback': where += " AND type='discount' AND reference_type='reward'"; break;
+      case 'admin':    where += " AND reference_type='admin'";                    break;
+      case 'adjust':   where += " AND type='adjustment'";                         break;
+    }
+  }
+  if (date_from) { where += ' AND date(created_at) >= ?'; params.push(date_from); }
+  if (date_to)   { where += ' AND date(created_at) <= ?'; params.push(date_to); }
+
+  const transactions = db.prepare(
+    `SELECT * FROM wallet_transactions WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+  ).all(...params, parseInt(limit), offset);
+  const total = db.prepare(`SELECT COUNT(*) as c FROM wallet_transactions WHERE ${where}`).get(...params).c;
+
+  res.json({ customer, transactions, total, page: parseInt(page), limit: parseInt(limit) });
+}
+
+function getAllWalletTransactions(req, res) {
+  const { page = 1, limit = 50, type, date_from, date_to, customer_search } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+
+  let where = "wt.id IS NOT NULL";
+  const params = [];
+
+  if (type) {
+    switch (type) {
+      case 'topup':    where += " AND wt.type='credit' AND wt.reference_type='topup'";  break;
+      case 'order':    where += " AND wt.type='debit' AND wt.reference_type='order'";   break;
+      case 'refund':   where += " AND wt.type='refund'";                               break;
+      case 'cashback': where += " AND wt.type='discount' AND wt.reference_type='reward'"; break;
+      case 'admin':    where += " AND wt.reference_type='admin'";                      break;
+      case 'adjust':   where += " AND wt.type='adjustment'";                           break;
+      case 'debit':    where += " AND wt.type='debit'";                                break;
+      case 'credit':   where += " AND wt.type IN ('credit','discount','refund')";      break;
+    }
+  }
+  if (date_from) { where += ' AND date(wt.created_at) >= ?'; params.push(date_from); }
+  if (date_to)   { where += ' AND date(wt.created_at) <= ?'; params.push(date_to); }
+  if (customer_search) {
+    where += ' AND (u.name LIKE ? OR u.phone LIKE ?)';
+    params.push(`%${customer_search}%`, `%${customer_search}%`);
+  }
+
+  const transactions = db.prepare(`
+    SELECT wt.*, u.name as customer_name, u.phone as customer_phone
+    FROM wallet_transactions wt
+    JOIN users u ON u.id = wt.user_id
+    WHERE ${where}
+    ORDER BY wt.created_at DESC LIMIT ? OFFSET ?
+  `).all(...params, parseInt(limit), offset);
+
+  const total = db.prepare(`
+    SELECT COUNT(*) as c FROM wallet_transactions wt
+    JOIN users u ON u.id = wt.user_id WHERE ${where}
+  `).get(...params).c;
+
+  // Summary totals
+  const summary = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN type IN ('credit','refund','discount') THEN amount ELSE 0 END), 0) as total_credited,
+      COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE 0 END), 0) as total_debited,
+      COUNT(DISTINCT user_id) as unique_customers,
+      COUNT(*) as total_count
+    FROM wallet_transactions wt
+    JOIN users u ON u.id = wt.user_id WHERE ${where}
+  `).get(...params);
+
+  res.json({ transactions, total, page: parseInt(page), limit: parseInt(limit), summary });
+}
+
 module.exports = {
   getDashboard, adminListOrders, updateOrderStatus, assignAgent, getAgents, createAgent, toggleAgent,
-  creditWallet, debitWallet, listUsers, createCustomer, toggleCustomer, getConfig, updateConfig,
+  creditWallet, debitWallet, listUsers, createCustomer, toggleCustomer, updateCustomer, getConfig, updateConfig,
+  getCustomerWalletHistory, getAllWalletTransactions,
   listTopupRequests, approveTopup, rejectTopup, adminListProducts,
   resetCustomerPassword, updateOrderItemWeights, markPickupCollected,
 };

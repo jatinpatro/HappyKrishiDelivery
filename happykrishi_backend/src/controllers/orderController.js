@@ -3,6 +3,7 @@ const walletService = require('../services/walletService');
 const { calcDeliveryCharge } = require('../services/deliveryChargeService');
 const notificationService = require('../services/notificationService');
 const whatsappService = require('../services/whatsappService');
+const { recalculateCustomerTier } = require('../services/tierService');
 const emailService = require('../services/emailService');
 
 function getConfig(key) {
@@ -32,7 +33,7 @@ function placeOrder(req, res) {
 
   const minOrder = getConfig('min_order_amount') || 50;
 
-  const user = db.prepare('SELECT wallet_balance, email FROM users WHERE id = ?').get(userId);
+  const user = db.prepare('SELECT wallet_balance, email, tier_id FROM users WHERE id = ?').get(userId);
   let pincodeRules = null;
   if (order_type === 'delivery') {
     address = db.prepare('SELECT * FROM addresses WHERE id = ? AND user_id = ?').get(address_id, userId);
@@ -95,10 +96,17 @@ function placeOrder(req, res) {
         : calcDeliveryCharge(address.lat, address.lng, subtotal);
   const finalAmount = parseFloat((subtotal + deliveryCharge).toFixed(2));
 
-  // Block order if wallet already negative
-  if (user.wallet_balance < 0) {
+  // Block order if resulting balance would exceed the allowed negative limit
+  const tierRow = user.tier_id
+    ? db.prepare('SELECT max_wallet_negative_limit FROM customer_tiers WHERE id=?').get(user.tier_id)
+    : null;
+  const negLimit = tierRow?.max_wallet_negative_limit != null
+    ? tierRow.max_wallet_negative_limit
+    : parseFloat(db.prepare("SELECT value FROM app_config WHERE key='max_wallet_negative_limit'").get()?.value ?? '0');
+  const resultingBalance = parseFloat((user.wallet_balance - finalAmount).toFixed(2));
+  if (resultingBalance < 0 && Math.abs(resultingBalance) > negLimit) {
     return res.status(400).json({
-      error: `Your wallet balance is ₹${user.wallet_balance.toFixed(2)}. Please top up before placing a new order.`
+      error: `This order would take your balance to ₹${resultingBalance.toFixed(2)}, exceeding your ₹${negLimit.toFixed(0)} credit limit. Please top up first.`
     });
   }
 
@@ -148,6 +156,7 @@ function placeOrder(req, res) {
   });
 
   const order = txn();
+  setImmediate(() => recalculateCustomerTier(userId));
 
   const items_ = db.prepare(`
     SELECT oi.*, p.name as product_name, p.unit FROM order_items oi
@@ -155,6 +164,7 @@ function placeOrder(req, res) {
   `).all(order.id);
 
   notificationService.sendToUser(userId, 'Order Confirmed!', `Your order #${order.order_number} has been placed.`, { type: 'order_confirmed', order_id: String(order.id) });
+  notificationService.sendToAdmins('New Order 🛒', `${user.name} placed order #${order.order_number} — ₹${order.final_amount.toFixed(2)}`, { type: 'new_order', order_id: String(order.id) });
   whatsappService.sendTemplate(userId, 'order_confirmed', []);
   if (user.email) emailService.sendOrderConfirmation(user.email, order, items_).catch(() => {});
 
@@ -162,11 +172,13 @@ function placeOrder(req, res) {
 }
 
 function listOrders(req, res) {
-  const { page = 1, limit = 50, status, search } = req.query;
+  const { page = 1, limit = 50, status, search, date_from, date_to } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
   let where = 'o.user_id = ?';
   const params = [req.user.id];
   if (status) { where += ' AND o.status = ?'; params.push(status); }
+  if (date_from) { where += ' AND date(o.created_at) >= ?'; params.push(date_from); }
+  if (date_to)   { where += ' AND date(o.created_at) <= ?'; params.push(date_to); }
   if (search) {
     const like = `%${search}%`;
     where += ` AND (
@@ -266,6 +278,7 @@ function cancelOrder(req, res) {
   })();
 
   notificationService.sendToUser(order.user_id, 'Order Cancelled', `Order #${order.order_number} has been cancelled. Refund added to wallet.`);
+  setImmediate(() => recalculateCustomerTier(order.user_id));
   res.json({ message: 'Order cancelled and wallet refunded' });
 }
 
@@ -311,7 +324,10 @@ function getDeliveryCharge(req, res) {
   const { address_id, subtotal } = req.query;
   if (!address_id) return res.status(400).json({ error: 'address_id required' });
 
-  const address = db.prepare('SELECT lat, lng, pincode FROM addresses WHERE id = ? AND user_id = ?').get(address_id, req.user.id);
+  const isStaff = ['admin', 'salesman'].includes(req.user.role);
+  const address = isStaff
+    ? db.prepare('SELECT lat, lng, pincode FROM addresses WHERE id = ?').get(address_id)
+    : db.prepare('SELECT lat, lng, pincode FROM addresses WHERE id = ? AND user_id = ?').get(address_id, req.user.id);
   if (!address) return res.status(404).json({ error: 'Address not found' });
 
   // Check for custom delivery charge on this pincode first
@@ -376,6 +392,7 @@ function cancelOrderByStaff(req, res) {
     'Order Cancelled',
     `Your order #${order.order_number} was cancelled by ${staff.role}. Reason: ${reason.trim()}. Refund added to wallet.`
   );
+  setImmediate(() => recalculateCustomerTier(order.user_id));
   res.json({ message: 'Order cancelled and wallet refunded', cancelled_by: staff.role });
 }
 
@@ -436,10 +453,17 @@ function placeOrderForCustomer(req, res) {
       : calcDeliveryCharge(address?.lat, address?.lng, subtotal);
   const finalAmount = parseFloat((subtotal + deliveryCharge).toFixed(2));
 
-  // Block order if customer wallet already negative
-  if (customer.wallet_balance < 0) {
+  // Block order if resulting balance would exceed the allowed negative limit
+  const tierRow2 = customer.tier_id
+    ? db.prepare('SELECT max_wallet_negative_limit FROM customer_tiers WHERE id=?').get(customer.tier_id)
+    : null;
+  const negLimit2 = tierRow2?.max_wallet_negative_limit != null
+    ? tierRow2.max_wallet_negative_limit
+    : parseFloat(db.prepare("SELECT value FROM app_config WHERE key='max_wallet_negative_limit'").get()?.value ?? '0');
+  const resultingBalance2 = parseFloat((customer.wallet_balance - finalAmount).toFixed(2));
+  if (resultingBalance2 < 0 && Math.abs(resultingBalance2) > negLimit2) {
     return res.status(400).json({
-      error: `Customer wallet balance is ₹${customer.wallet_balance.toFixed(2)}. Please top up before placing a new order.`
+      error: `This order would take customer balance to ₹${resultingBalance2.toFixed(2)}, exceeding their ₹${negLimit2.toFixed(0)} credit limit.`
     });
   }
 
@@ -499,6 +523,7 @@ function placeOrderForCustomer(req, res) {
   });
 
   const order = txn();
+  setImmediate(() => recalculateCustomerTier(customer.id));
   const items_ = db.prepare(`
     SELECT oi.*, p.name as product_name, p.unit FROM order_items oi
     JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?
@@ -507,6 +532,7 @@ function placeOrderForCustomer(req, res) {
   notificationService.sendToUser(customer.id, 'Order Placed!',
     `Your order #${order.order_number} has been placed by ${placedBy.role}.`,
     { type: 'order_confirmed', order_id: String(order.id) });
+  notificationService.sendToAdmins('Order Placed for Customer 🛒', `${placedBy.name} (${placedBy.role}) placed order #${order.order_number} for ${customer.name} — ₹${order.final_amount.toFixed(2)}`, { type: 'new_order', order_id: String(order.id) });
   if (customer.email) emailService.sendOrderConfirmation(customer.email, order, items_).catch(() => {});
 
   res.status(201).json({ order, items: items_ });

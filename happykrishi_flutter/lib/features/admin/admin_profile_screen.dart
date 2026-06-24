@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 
@@ -80,6 +81,11 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
       appBar: AppBar(
         title: const Text('My Profile'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home_outlined),
+            tooltip: 'Home',
+            onPressed: () => context.go('/admin/dashboard'),
+          ),
           if (_changed)
             TextButton(
               onPressed: _saving ? null : _save,
