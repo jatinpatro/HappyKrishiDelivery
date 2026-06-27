@@ -7,15 +7,21 @@ import '../../core/api/endpoints.dart';
 import '../../core/services/pdf_service.dart';
 import '../../core/utils/error_handler.dart';
 
-final analyticsProvider = FutureProvider.family.autoDispose<Map<String, dynamic>, Map<String, String>>((ref, params) async {
+final analyticsProvider = FutureProvider.family.autoDispose<Map<String, dynamic>, String>((ref, key) async {
+  final parts = key.split('|');
   final dio = ref.read(dioProvider);
-  final res = await dio.get(Endpoints.adminAnalytics, queryParameters: params);
+  final res = await dio.get(Endpoints.adminAnalytics, queryParameters: {
+    'from': parts[0], 'to': parts[1], 'group_by': parts[2],
+  });
   return res.data as Map<String, dynamic>;
 });
 
-final salesReportProvider = FutureProvider.family.autoDispose<Map<String, dynamic>, Map<String, String>>((ref, params) async {
+final salesReportProvider = FutureProvider.family.autoDispose<Map<String, dynamic>, String>((ref, key) async {
+  final parts = key.split('|');
   final dio = ref.read(dioProvider);
-  final res = await dio.get(Endpoints.adminSalesReport, queryParameters: params);
+  final res = await dio.get(Endpoints.adminSalesReport, queryParameters: {
+    'from': parts[0], 'to': parts[1], 'group_by': parts[2],
+  });
   return res.data as Map<String, dynamic>;
 });
 
@@ -40,13 +46,10 @@ class _AdminAnalyticsScreenState extends ConsumerState<AdminAnalyticsScreen>
   late TabController _tabs;
   String _period = '30';
 
-  Map<String, String> get _dateParams {
+  String get _dateParams {
     final from = DateTime.now().subtract(Duration(days: int.parse(_period)));
-    return {
-      'from': _fmt(from),
-      'to': _fmt(DateTime.now()),
-      'group_by': int.parse(_period) <= 14 ? 'day' : 'day',
-    };
+    final groupBy = int.parse(_period) <= 14 ? 'day' : 'day';
+    return '${_fmt(from)}|${_fmt(DateTime.now())}|$groupBy';
   }
 
   String _fmt(DateTime d) =>
@@ -80,6 +83,15 @@ class _AdminAnalyticsScreenState extends ConsumerState<AdminAnalyticsScreen>
             icon: const Icon(Icons.home_outlined),
             tooltip: 'Home',
             onPressed: () => context.go('/admin/dashboard'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () {
+              ref.invalidate(analyticsProvider(_dateParams));
+              ref.invalidate(salesReportProvider(_dateParams));
+              ref.invalidate(customerActivityProvider);
+            },
           ),
         ],
         bottom: TabBar(
@@ -127,7 +139,7 @@ final adminOrdersFromAnalytics = Provider.family<List<Map<String, dynamic>>, Map
 // ── Tab 1: Overview ───────────────────────────────────────────────────────────
 
 class _OverviewTab extends ConsumerWidget {
-  final Map<String, String> dateParams;
+  final String dateParams;
   final String period;
   final ValueChanged<String> onPeriodChange;
   const _OverviewTab({required this.dateParams, required this.period, required this.onPeriodChange});

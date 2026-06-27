@@ -8,34 +8,37 @@ import '../../core/services/pdf_service.dart';
 import '../orders/order_detail_screen.dart' show orderDetailProvider;
 import 'place_order_for_customer_screen.dart';
 import '../../core/widgets/active_filter.dart';
-import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/widgets/filter_form.dart';
 import '../../core/utils/error_handler.dart';
 
-final adminOrdersProvider = FutureProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, key) async {
-  final parts = key.split('|');
-  final status     = parts[0] == 'null' ? null : parts[0];
-  final orderType  = parts.length > 1 && parts[1] != 'null' ? parts[1] : null;
-  final dateFrom   = parts.length > 2 && parts[2] != 'null' ? parts[2] : null;
-  final dateTo     = parts.length > 3 && parts[3] != 'null' ? parts[3] : null;
-  final search     = parts.length > 4 && parts[4] != 'null' ? parts[4] : null;
-  final salesmanId = parts.length > 5 && parts[5] != 'null' ? parts[5] : null;
-  final dio = ref.read(dioProvider);
-  final params = <String, String>{};
-  if (status     != null) params['status']      = status;
-  if (orderType  != null) params['order_type']  = orderType;
-  if (dateFrom   != null) params['date_from']   = dateFrom;
-  if (dateTo     != null) params['date_to']     = dateTo;
-  if (search     != null) params['search']      = search;
-  if (salesmanId != null) params['salesman_id'] = salesmanId;
-  final res = await dio.get(Endpoints.adminOrders, queryParameters: params.isNotEmpty ? params : null);
-  return List<Map<String, dynamic>>.from(res.data['orders']);
-});
+final adminOrdersProvider = FutureProvider.family.autoDispose<Map<String, dynamic>, String>((ref, key) async {
+  // key = "status|orderType|filterKey|page"
+  final parts     = key.split('|||');
+  final mainKey   = parts[0];
+  final page      = parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1;
 
-// Salesmen list for filter dropdown
-final adminSalesmenProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final dio = ref.read(dioProvider);
-  final res = await dio.get(Endpoints.adminSalesmen);
-  return List<Map<String, dynamic>>.from(res.data['salesmen'] ?? res.data['users'] ?? []);
+  final firstPipe  = mainKey.indexOf('|');
+  final secondPipe = mainKey.indexOf('|', firstPipe + 1);
+  final status    = firstPipe < 0 ? null : mainKey.substring(0, firstPipe);
+  final orderType = secondPipe < 0 ? null : mainKey.substring(firstPipe + 1, secondPipe);
+  final filterKey = secondPipe < 0 ? '' : mainKey.substring(secondPipe + 1);
+
+  final filterParts = filterKey.split('|');
+  final params = <String, dynamic>{};
+  if (status    != null && status.isNotEmpty)          params['status']     = status;
+  if (orderType != null && orderType.isNotEmpty)        params['order_type'] = orderType;
+  if (filterParts.isNotEmpty && filterParts[0].isNotEmpty) params['date_from']  = filterParts[0];
+  if (filterParts.length > 1 && filterParts[1].isNotEmpty) params['date_to']    = filterParts[1];
+  if (filterParts.length > 2 && filterParts[2].isNotEmpty) params['search']     = filterParts[2];
+  for (int i = 3; i < filterParts.length; i++) {
+    final seg = filterParts[i].split(':');
+    if (seg.length >= 2 && seg[0] == 'salesman_id') params['salesman_id'] = seg[1];
+  }
+  params['page']  = page;
+  params['limit'] = 50;
+
+  final res = await ref.read(dioProvider).get(Endpoints.adminOrders, queryParameters: params);
+  return res.data as Map<String, dynamic>;
 });
 
 // Status metadata: label, color, icon
@@ -48,6 +51,19 @@ const _statusMeta = {
   'cancelled':  ('Cancelled',  Color(0xFFC62828), Icons.cancel_outlined),
 };
 
+const _ordersFilterConfig = FilterFormConfig(
+  title: 'Filter Orders',
+  showDateRange: true,
+  showTextSearch: true,
+  textSearchHint: 'Order #, customer, salesman, product…',
+  dynamicFields: [
+    FilterDefinition(field: 'customer_name', label: 'Customer', type: FilterType.text,   serverSide: false),
+    FilterDefinition(field: 'salesman_name', label: 'Salesman', type: FilterType.text,   serverSide: false),
+    FilterDefinition(field: 'final_amount',  label: 'Amount',   type: FilterType.number, serverSide: false),
+    FilterDefinition(field: 'city',          label: 'City',     type: FilterType.text,   serverSide: false),
+  ],
+);
+
 class AdminOrdersScreen extends ConsumerStatefulWidget {
   const AdminOrdersScreen({super.key});
   @override
@@ -57,79 +73,68 @@ class AdminOrdersScreen extends ConsumerStatefulWidget {
 class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
   String? _statusFilter;
   String? _typeFilter;
-  String? _salesmanId;
-  late DateTime _dateFrom;
-  late DateTime _dateTo;
-  String _search = '';
-  final _searchCtrl = TextEditingController();
-  List<ActiveFilter> _activeFilters = [];
+  FilterFormState _filter = FilterFormState.empty;
 
-  static const _filterDefs = [
-    FilterDefinition(field: 'final_amount', label: 'Amount', type: FilterType.number),
-    FilterDefinition(field: 'city', label: 'City', type: FilterType.text),
-    FilterDefinition(field: 'agent_name', label: 'Agent', type: FilterType.text),
-  ];
+  static const _limit = 50;
+  static const _statuses = [null, 'pending', 'confirmed', 'assigned', 'dispatched', 'delivered', 'cancelled'];
+
+  List<Map<String, dynamic>> _allOrders = [];
+  int _page = 1;
+  int _total = 0;
+  bool _loading = false;
+  bool _loadingMore = false;
+
+  String get _baseKey {    final status    = _statusFilter ?? '';
+    final orderType = _typeFilter   ?? '';
+    return '$status|$orderType|${_filter.toProviderKey()}';
+  }
 
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _dateFrom = DateTime(now.year, now.month, 1);
-    _dateTo   = DateTime(now.year, now.month + 1, 0);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load(reset: true));
   }
 
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
+  void _onFilterChanged() {
+    _load(reset: true);
   }
 
-  static const _statuses = [null, 'pending', 'confirmed', 'assigned', 'dispatched', 'delivered', 'cancelled'];
-
-  String _fmt(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  String get _providerKey =>
-      '${_statusFilter ?? 'null'}|${_typeFilter ?? 'null'}|${_fmt(_dateFrom)}|${_fmt(_dateTo)}|${_search.isEmpty ? 'null' : _search}|${_salesmanId ?? 'null'}';
-
-  bool get _hasCustomDateFilter {
-    final now = DateTime.now();
-    final defaultFrom = DateTime(now.year, now.month, 1);
-    final defaultTo   = DateTime(now.year, now.month + 1, 0);
-    return _fmt(_dateFrom) != _fmt(defaultFrom) || _fmt(_dateTo) != _fmt(defaultTo);
-  }
-
-  void _resetToCurrentMonth() {
-    final now = DateTime.now();
-    setState(() {
-      _dateFrom = DateTime(now.year, now.month, 1);
-      _dateTo   = DateTime(now.year, now.month + 1, 0);
-    });
-  }
-
-  Future<void> _pickDateRange() async {
-    final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2024),
-      lastDate: now.add(const Duration(days: 90)),
-      initialDateRange: DateTimeRange(start: _dateFrom, end: _dateTo),
-      helpText: 'Filter by Delivery Date',
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32)),
-        ),
-        child: child!,
-      ),
-    );
-    if (picked != null) {
-      setState(() { _dateFrom = picked.start; _dateTo = picked.end; });
+  Future<void> _load({bool reset = false}) async {
+    if (reset) {
+      setState(() { _allOrders = []; _page = 1; _total = 0; _loading = true; });
+    } else {
+      setState(() => _loadingMore = true);
+    }
+    try {
+      final data = await ref.read(adminOrdersProvider('$_baseKey|||${reset ? 1 : _page + 1}').future);
+      final orders = List<Map<String, dynamic>>.from(data['orders'] as List);
+      final total  = (data['total'] as num?)?.toInt() ?? orders.length;
+      setState(() {
+        if (reset) {
+          _allOrders = orders;
+          _page = 1;
+        } else {
+          _allOrders = [..._allOrders, ...orders];
+          _page++;
+        }
+        _total = total;
+        _loading = false;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      logError('admin-orders', e);
+      setState(() { _loading = false; _loadingMore = false; });
     }
   }
 
+  bool get _hasMore => _allOrders.length < _total;
+
   @override
   Widget build(BuildContext context) {
-    final orders = ref.watch(adminOrdersProvider(_providerKey));
+    final localFilters = _filter.toLocalFilters();
+    final filtered = localFilters.isEmpty
+        ? _allOrders
+        : _allOrders.where((o) => matchesAllFilters(o, localFilters)).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
@@ -146,13 +151,17 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
             icon: const Icon(Icons.download_outlined),
             tooltip: 'Download Report',
             onPressed: () {
-              final list = ref.read(adminOrdersProvider(_providerKey)).value ?? [];
-              if (list.isEmpty) return;
+              if (_allOrders.isEmpty) return;
               final label = _statusFilter == null && _typeFilter == null
                   ? 'All Orders'
                   : '${_typeFilter?.toUpperCase() ?? ''} ${_statusFilter?.toUpperCase() ?? 'ALL'}'.trim();
-              PdfService.shareAdminOrdersReport(context: context, orders: list, title: label);
+              PdfService.shareAdminOrdersReport(context: context, orders: _allOrders, title: label);
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => _load(reset: true),
           ),
         ],
       ),
@@ -161,182 +170,103 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
           final placed = await Navigator.of(context).push<bool>(
             MaterialPageRoute(builder: (_) => const PlaceOrderForCustomerScreen()),
           );
-          if (placed == true) ref.invalidate(adminOrdersProvider(_providerKey));
+          if (placed == true) _load(reset: true);
         },
         icon: const Icon(Icons.add_shopping_cart),
         label: const Text('Place Order'),
         backgroundColor: const Color(0xFF2E7D32),
       ),
       body: Column(children: [
-        // ── Filter header ────────────────────────────────────────────────────
+        // ── Filter header ─────────────────────────────────────────────────────
         Container(
           color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Search bar
-            TextField(
-              controller: _searchCtrl,
-              onChanged: (v) => setState(() => _search = v.trim()),
-              decoration: InputDecoration(
-                hintText: 'Search by order #, customer, product, category, salesman…',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _search.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); })
-                    : null,
-                isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              ),
-            ),
-            const SizedBox(height: 10),
-            // Type + count row
             Row(children: [
-              _TypeBtn(label: 'All',         value: null,       selected: _typeFilter, onTap: (v) => setState(() => _typeFilter = v)),
-              const SizedBox(width: 8),
-              _TypeBtn(label: '🚚 Delivery', value: 'delivery', selected: _typeFilter, onTap: (v) => setState(() => _typeFilter = v)),
-              const SizedBox(width: 8),
-              _TypeBtn(label: '🏪 Pickup',   value: 'pickup',   selected: _typeFilter, onTap: (v) => setState(() => _typeFilter = v)),
-              const Spacer(),
-              if (orders.value != null)
+              Expanded(
+                child: Wrap(spacing: 6, runSpacing: 6, children: [
+                  _TypeBtn(label: 'All',         value: null,       selected: _typeFilter, onTap: (v) { setState(() => _typeFilter = v); _load(reset: true); }),
+                  _TypeBtn(label: '🚚 Delivery', value: 'delivery', selected: _typeFilter, onTap: (v) { setState(() => _typeFilter = v); _load(reset: true); }),
+                  _TypeBtn(label: '🏪 Pickup',   value: 'pickup',   selected: _typeFilter, onTap: (v) { setState(() => _typeFilter = v); _load(reset: true); }),
+                ]),
+              ),
+              if (_total > 0)
                 Container(
+                  margin: const EdgeInsets.only(left: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                       color: const Color(0xFFE8F5E9),
                       borderRadius: BorderRadius.circular(12)),
-                  child: Text('${orders.value!.length}',
+                  child: Text('$_total',
                       style: const TextStyle(
                           color: Color(0xFF2E7D32), fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
             ]),
-            const SizedBox(height: 10),
-            // Status chips — horizontally scrollable
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _StatusChip(label: 'All', value: null, selected: _statusFilter,
-                      onTap: () => setState(() => _statusFilter = null)),
-                  ..._statuses.where((s) => s != null).map((s) {
-                    final meta = _statusMeta[s]!;
-                    return Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: _StatusChip(
-                        label: meta.$1,
-                        value: s,
-                        selected: _statusFilter,
-                        color: meta.$2,
-                        icon: meta.$3,
-                        onTap: () => setState(() => _statusFilter = _statusFilter == s ? null : s),
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            // Date range row — always visible, defaults to current month
-            Row(children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: _pickDateRange,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _hasCustomDateFilter ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: _hasCustomDateFilter ? const Color(0xFF2E7D32) : Colors.grey.shade300),
-                    ),
-                    child: Row(children: [
-                      Icon(Icons.date_range,
-                          size: 16,
-                          color: _hasCustomDateFilter ? const Color(0xFF2E7D32) : Colors.grey),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${_fmt(_dateFrom)} → ${_fmt(_dateTo)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _hasCustomDateFilter ? const Color(0xFF2E7D32) : Colors.grey.shade700,
-                            fontWeight: _hasCustomDateFilter ? FontWeight.w600 : FontWeight.normal,
-                          ),
-                        ),
-                      ),
-                      const Icon(Icons.edit_calendar_outlined, size: 14, color: Colors.grey),
-                    ]),
-                  ),
-                ),
-              ),
-              if (_hasCustomDateFilter) ...[
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: _resetToCurrentMonth,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: Icon(Icons.close, size: 16, color: Colors.red.shade700),
-                  ),
-                ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _StatusChip(label: 'All', value: null, selected: _statusFilter,
+                    onTap: () { setState(() => _statusFilter = null); _load(reset: true); }),
+                ..._statuses.where((s) => s != null).map((s) {
+                  final meta = _statusMeta[s]!;
+                  return _StatusChip(
+                    label: meta.$1, value: s, selected: _statusFilter,
+                    color: meta.$2, icon: meta.$3,
+                    onTap: () { setState(() => _statusFilter = _statusFilter == s ? null : s); _load(reset: true); },
+                  );
+                }),
               ],
-            ]),
-            const SizedBox(height: 10),
-            // Salesman filter row
-            _SalesmanFilterRow(
-              selectedId: _salesmanId,
-              onChanged: (id) => setState(() => _salesmanId = id),
             ),
-            const SizedBox(height: 10),
-            FilterChipBar(
-              availableFilters: _filterDefs,
-              activeFilters: _activeFilters,
-              onAdd: (f) => setState(() => _activeFilters = [..._activeFilters.where((e) => e.field != f.field), f]),
-              onRemove: (f) => setState(() => _activeFilters = _activeFilters.where((e) => e.field != f.field).toList()),
-            ),
+            const SizedBox(height: 8),
           ]),
+        ),
+        // ── FilterBar ────────────────────────────────────────────────────────
+        FilterBar(
+          config: _ordersFilterConfig,
+          state: _filter,
+          onChanged: (f) { setState(() => _filter = f); _load(reset: true); },
+          onLoad: () => _load(reset: true),
         ),
         const Divider(height: 1),
 
         // ── Order list ───────────────────────────────────────────────────────
         Expanded(
-          child: orders.when(
-            data: (list) {
-              final filtered = _activeFilters.isEmpty
-                  ? list
-                  : list.where((o) => matchesAllFilters(o, _activeFilters)).toList();
-              return filtered.isEmpty
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : filtered.isEmpty
                   ? _EmptyState(statusFilter: _statusFilter)
                   : RefreshIndicator(
-                      onRefresh: () async => ref.invalidate(adminOrdersProvider(_providerKey)),
+                      onRefresh: () => _load(reset: true),
                       child: ListView.builder(
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                        itemCount: filtered.length,
-                        itemBuilder: (_, i) => _AdminOrderTile(
-                          order: filtered[i],
-                          onRefresh: () => ref.invalidate(adminOrdersProvider(_providerKey)),
-                        ),
+                        itemCount: filtered.length + 1,
+                        itemBuilder: (_, i) {
+                          if (i < filtered.length) {
+                            return _AdminOrderTile(
+                              order: filtered[i],
+                              onRefresh: () => _load(reset: true),
+                            );
+                          }
+                          if (_hasMore) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: _loadingMore
+                                    ? const CircularProgressIndicator()
+                                    : ElevatedButton.icon(
+                                        icon: const Icon(Icons.expand_more),
+                                        label: Text('Load More (${_allOrders.length} of $_total)'),
+                                        onPressed: () => _load(),
+                                      ),
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
                       ),
-                    );
-            },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) { logError('admin-orders', e); return Center(
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 12),
-                Text(friendlyError(e), textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: () => ref.invalidate(adminOrdersProvider(_providerKey)),
-                  child: const Text('Retry'),
-                ),
-              ]),
-            ); },
-          ),
+                    ),
         ),
       ]),
     );
@@ -465,10 +395,17 @@ class _AdminOrderTileState extends ConsumerState<_AdminOrderTile> {
     final orderId         = order['id'] as int;
     final amount          = (order['final_amount'] as num).toDouble();
     final isPickup        = order['order_type'] == 'pickup';
-    final agentName       = order['agent_name'] as String?;
-    final agentPhone      = order['agent_phone'] as String?;
+    final salesmanName    = order['salesman_name'] as String?;
+    final salesmanPhone   = order['salesman_phone'] as String?;
     final customerPhone   = order['customer_phone'] as String? ?? '';
     final cancelledReason = order['cancelled_reason'] as String?;
+    final couponCode      = order['coupon_code'] as String?;
+    final couponDiscount  = (order['coupon_discount'] as num?)?.toDouble() ?? 0;
+
+    // Smart amount formatter — shows decimals only when needed
+    String amt(double v) => v == v.truncateToDouble()
+        ? v.toStringAsFixed(0)
+        : v.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '');
 
     final meta        = _statusMeta[status];
     final statusColor = meta?.$2 ?? Colors.grey;
@@ -511,7 +448,17 @@ class _AdminOrderTileState extends ConsumerState<_AdminOrderTile> {
                         color: isPickup ? Colors.teal.shade700 : Colors.blue.shade700)),
               ),
               const Spacer(),
-              Text('₹${amount.toStringAsFixed(0)}',
+              if (couponDiscount > 0) ...[
+                Text(
+                  '₹${amt(amount + couponDiscount)}',
+                  style: TextStyle(
+                    fontSize: 11, color: Colors.grey,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
+              Text('₹${amt(amount)}',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: statusColor)),
             ]),
           ),
@@ -582,22 +529,37 @@ class _AdminOrderTileState extends ConsumerState<_AdminOrderTile> {
                 ]),
               ],
 
-              // Delivery agent + phone + call/WhatsApp
-              if (agentName != null) ...[
+              // Coupon discount
+              if (couponCode != null && couponDiscount > 0) ...[
+                const SizedBox(height: 4),
+                Row(children: [
+                  const Icon(Icons.discount_outlined, size: 13, color: Colors.green),
+                  const SizedBox(width: 5),
+                  Text(couponCode,
+                      style: const TextStyle(fontSize: 12, color: Colors.green,
+                          fontWeight: FontWeight.w600, letterSpacing: 1)),
+                  const SizedBox(width: 6),
+                  Text('-₹${amt(couponDiscount)} off',
+                      style: const TextStyle(fontSize: 11, color: Colors.green)),
+                ]),
+              ],
+
+              // Salesman
+              if (salesmanName != null) ...[
                 const SizedBox(height: 4),
                 Row(children: [
                   const Icon(Icons.badge_outlined, size: 13, color: Colors.indigo),
                   const SizedBox(width: 5),
-                  Text(agentName,
+                  Text(salesmanName!,
                       style: const TextStyle(fontSize: 12, color: Colors.indigo,
                           fontWeight: FontWeight.w500)),
-                  if (agentPhone != null) ...[
-                    const SizedBox(width: 6),
-                    Text('+91 $agentPhone',
+                  const SizedBox(width: 4),
+                  if (salesmanPhone != null) ...[
+                    Text('+91 $salesmanPhone',
                         style: const TextStyle(fontSize: 11, color: Colors.grey)),
                     const SizedBox(width: 4),
-                    _ContactBtn(phone: agentPhone, isWhatsApp: false),
-                    _ContactBtn(phone: agentPhone, isWhatsApp: true),
+                    _ContactBtn(phone: salesmanPhone!, isWhatsApp: false),
+                    _ContactBtn(phone: salesmanPhone!, isWhatsApp: true),
                   ],
                 ]),
               ],
@@ -678,8 +640,8 @@ class _OrderExpandedDetail extends ConsumerWidget {
       data: (d) {
         final items    = (d['items'] as List).cast<Map<String, dynamic>>();
         final delivery = d['delivery'] as Map<String, dynamic>?;
-        final agentName  = delivery?['agent_name'] as String?;
-        final agentPhone = delivery?['agent_phone'] as String?;
+        final staffName   = delivery?['agent_name'] as String?;
+        final staffPhone  = delivery?['agent_phone'] as String?;
         final assignedAt  = delivery?['assigned_at'] as String?;
         final pickedAt    = delivery?['picked_at'] as String?;
         final deliveredAt = delivery?['delivered_at'] as String?;
@@ -720,7 +682,7 @@ class _OrderExpandedDetail extends ConsumerWidget {
             }),
 
             // Delivery timeline
-            if (agentName != null) ...[
+            if (staffName != null) ...[
               const SizedBox(height: 10),
               const Divider(height: 1),
               const SizedBox(height: 8),
@@ -728,7 +690,7 @@ class _OrderExpandedDetail extends ConsumerWidget {
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
               const SizedBox(height: 6),
               _TimelineRow(Icons.badge_outlined, Colors.indigo,
-                  '$agentName  •  +91 ${agentPhone ?? ''}', null),
+                  '$staffName  •  +91 ${staffPhone ?? ''}', null),
               if (assignedAt != null)
                 _TimelineRow(Icons.assignment_turned_in_outlined, Colors.blue,
                     'Assigned', assignedAt.substring(0, 16)),
@@ -1028,28 +990,36 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
 
   Future<void> _assignAgent() async {
     final dio = ref.read(dioProvider);
-    final agentsRes = await dio.get(Endpoints.adminAgents);
-    final agents = List<Map<String, dynamic>>.from(agentsRes.data['agents']);
+    final res = await dio.get(Endpoints.adminSalesmen);
+    final salesmen = List<Map<String, dynamic>>.from(res.data['salesmen'] ?? res.data['agents'] ?? []);
     if (!mounted) return;
     final picked = await showDialog<int>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Select Salesman / Agent'),
-        children: agents.map((a) => SimpleDialogOption(
-          onPressed: () => Navigator.pop(ctx, a['id'] as int),
-          child: ListTile(
-            dense: true,
-            leading: CircleAvatar(
-              radius: 16,
-              backgroundColor: const Color(0xFF2E7D32),
-              child: Text((a['name'] as String).substring(0, 1).toUpperCase(),
-                  style: const TextStyle(color: Colors.white, fontSize: 12)),
+        title: const Text('Assign Salesman'),
+        children: salesmen.map((s) {
+          final active = (s['is_active'] as int? ?? 1) == 1;
+          return SimpleDialogOption(
+            onPressed: active ? () => Navigator.pop(ctx, s['id'] as int) : null,
+            child: ListTile(
+              dense: true,
+              enabled: active,
+              leading: CircleAvatar(
+                radius: 16,
+                backgroundColor: active ? const Color(0xFF2E7D32) : Colors.grey.shade400,
+                child: Text((s['name'] as String).substring(0, 1).toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 12)),
+              ),
+              title: Text(s['name'] as String,
+                  style: TextStyle(color: active ? null : Colors.grey)),
+              subtitle: Text(
+                active ? '🟢 Active' : '🔴 Disabled',
+                style: TextStyle(fontSize: 11, color: active ? Colors.green.shade700 : Colors.red.shade400),
+              ),
+              trailing: active ? null : const Icon(Icons.block, size: 16, color: Colors.grey),
             ),
-            title: Text(a['name'] as String),
-            subtitle: Text('${a['role'] ?? 'agent'}  •  ${a['is_available'] == 1 ? '🟢 Available' : '🔴 Busy'}',
-                style: const TextStyle(fontSize: 11)),
-          ),
-        )).toList(),
+          );
+        }).toList(),
       ),
     );
     if (picked == null) return;
@@ -1059,6 +1029,73 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
       widget.onRefresh();
     } catch (e, st) {
       logError('admin-orders', e, st);
+      if (mounted) _snack(friendlyError(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _waiveDelivery(BuildContext ctx, double currentCharge) async {
+    final amtCtrl = TextEditingController(text: currentCharge.toStringAsFixed(0));
+    final noteCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: ctx,
+      builder: (d) => AlertDialog(
+        title: const Text('Waive Delivery Charge?'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Current delivery charge: ₹${currentCharge.toStringAsFixed(0)}',
+              style: const TextStyle(color: Colors.grey, fontSize: 13)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: amtCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Amount to waive (₹)',
+              prefixText: '₹ ',
+              border: OutlineInputBorder(),
+              isDense: true,
+              helperText: 'This amount will be credited to customer wallet',
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: noteCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Reason (optional)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(d, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
+            child: const Text('Waive & Credit Wallet'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final amount = double.tryParse(amtCtrl.text.trim());
+    if (amount == null || amount <= 0) {
+      _snack('Enter a valid amount');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await ref.read(dioProvider).post(
+        Endpoints.adminWaiveDelivery(widget.order['id'] as int),
+        data: {
+          'amount': amount,
+          if (noteCtrl.text.trim().isNotEmpty) 'note': noteCtrl.text.trim(),
+        },
+      );
+      widget.onRefresh();
+      if (mounted) _snack('₹${amount.toStringAsFixed(0)} waived — credited to customer wallet ✅', color: Colors.teal);
+    } catch (e, st) {
+      logError('admin-waive-delivery', e, st);
       if (mounted) _snack(friendlyError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -1114,6 +1151,36 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
     }
 
     // Message + Details always shown
+    final deliveryCharge = (widget.order['delivery_charge'] as num?)?.toDouble() ?? 0;
+    if (!isPickup && deliveryCharge > 0 && !['delivered', 'cancelled'].contains(status)) {
+      secondary.add(
+        TextButton.icon(
+          icon: Icon(Icons.money_off_outlined, size: 14, color: Colors.teal.shade600),
+          label: Text('Waive Delivery', style: TextStyle(color: Colors.teal.shade600)),
+          onPressed: () => _waiveDelivery(context, deliveryCharge),
+          style: TextButton.styleFrom(
+            minimumSize: Size.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      );
+    }
+    if (['assigned', 'dispatched'].contains(status) && !isPickup) {
+      secondary.add(
+        TextButton.icon(
+          icon: const Icon(Icons.map_outlined, size: 14),
+          label: const Text('Track'),
+          onPressed: () => context.push('/admin/track/${widget.order['id']}'),
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFF2E7D32),
+            minimumSize: Size.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      );
+    }
     secondary.add(
       TextButton.icon(
         icon: const Icon(Icons.message_outlined, size: 14),
@@ -1141,26 +1208,46 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
       ),
     );
 
+    // Split secondary into cancel (outlined) vs text actions
+    final cancelBtns    = secondary.whereType<OutlinedButton>().cast<Widget>().toList();
+    final textActionBtns = secondary.where((w) => w is! OutlinedButton).toList();
+
     if (primary.isEmpty && secondary.length == 1) {
-      // delivered / cancelled — just show the details link centred
+      // delivered / cancelled — just show the details link aligned right
       return Align(alignment: Alignment.centerRight, child: secondary.first);
     }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // Primary action (full-width)
       if (primary.isNotEmpty) ...[
         ...primary,
         const SizedBox(height: 6),
       ],
-      if (secondary.isNotEmpty)
-        Row(children: [
-          for (int i = 0; i < secondary.length; i++) ...[
-            if (i > 0) const SizedBox(width: 8),
-            if (secondary[i] is OutlinedButton)
-              Expanded(child: secondary[i])
-            else
-              secondary[i],
-          ],
-        ]),
+      // Cancel button — full width, its own row
+      if (cancelBtns.isNotEmpty) ...[
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.close, size: 14),
+            label: const Text('Cancel Order'),
+            onPressed: _cancelWithReason,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: BorderSide(color: Colors.red.withValues(alpha: 0.6)),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+      ],
+      // Text action buttons — wrapping row
+      if (textActionBtns.isNotEmpty)
+        Wrap(
+          spacing: 4,
+          runSpacing: 0,
+          children: textActionBtns,
+        ),
     ]);
   }
 
@@ -1197,84 +1284,4 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
       );
 }
 
-// ── Salesman filter row ───────────────────────────────────────────────────────
 
-class _SalesmanFilterRow extends ConsumerWidget {
-  final String? selectedId;
-  final ValueChanged<String?> onChanged;
-  const _SalesmanFilterRow({required this.selectedId, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final salesmen = ref.watch(adminSalesmenProvider);
-
-    return salesmen.when(
-      loading: () => const SizedBox.shrink(),
-      error: (_, st) => const SizedBox.shrink(),
-      data: (list) {
-        if (list.isEmpty) return const SizedBox.shrink();
-        return Row(children: [
-          const Icon(Icons.person_pin_outlined, size: 16, color: Colors.grey),
-          const SizedBox(width: 8),
-          const Text('Salesman:',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: _SalesmanChip(
-                      label: 'All',
-                      selected: selectedId == null,
-                      onTap: () => onChanged(null),
-                    ),
-                  ),
-                  ...list.map((s) => Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: _SalesmanChip(
-                      label: s['name'] as String? ?? 'Salesman',
-                      selected: selectedId == '${s['id']}',
-                      onTap: () => onChanged(
-                          selectedId == '${s['id']}' ? null : '${s['id']}'),
-                    ),
-                  )),
-                ],
-              ),
-            ),
-          ),
-        ]);
-      },
-    );
-  }
-}
-
-class _SalesmanChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _SalesmanChip({required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xFF6A1B9A) : Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-            color: selected ? const Color(0xFF6A1B9A) : Colors.grey.shade300),
-      ),
-      child: Text(label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : Colors.black87,
-          )),
-    ),
-  );
-}

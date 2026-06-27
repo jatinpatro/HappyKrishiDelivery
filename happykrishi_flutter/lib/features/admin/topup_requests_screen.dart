@@ -4,25 +4,41 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/widgets/active_filter.dart';
-import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/widgets/filter_form.dart';
 import '../../core/utils/error_handler.dart';
 
 final topupRequestsProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>((ref, key) async {
   // key = "status|dateFrom|dateTo"
-  final parts = key.split('|');
-  final status   = parts[0];
-  final dateFrom = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
-  final dateTo   = parts.length > 2 && parts[2].isNotEmpty ? parts[2] : null;
-  final dio = ref.read(dioProvider);
+  final parts  = key.split('|');
+  final status = parts[0];
+  final dio    = ref.read(dioProvider);
   final params = <String, String>{};
   if (status != 'all') params['status'] = status;
-  if (dateFrom != null) params['date_from'] = dateFrom;
-  if (dateTo   != null) params['date_to']   = dateTo;
+  if (parts.length > 1 && parts[1].isNotEmpty) params['date_from'] = parts[1];
+  if (parts.length > 2 && parts[2].isNotEmpty) params['date_to']   = parts[2];
   final res = await dio.get(Endpoints.adminTopupRequests,
       queryParameters: params.isNotEmpty ? params : null);
   return res.data as Map<String, dynamic>;
 });
+
+const _topupSearchFields = [
+  'user_name', 'user_phone', 'collector_name',
+  'approved_by_name', 'credited_by_name', 'transaction_ref', 'amount',
+];
+
+const _topupFilterConfig = FilterFormConfig(
+  title: 'Filter Topups',
+  showDateRange: true,
+  showTextSearch: true,
+  textSearchHint: 'Customer name, phone, salesman, amount…',
+  dynamicFields: [
+    FilterDefinition(field: 'payment_method',  label: 'Method',   type: FilterType.select, options: ['cash', 'upi', 'bank_transfer', 'credit_advance'], serverSide: true),
+    FilterDefinition(field: 'user_name',         label: 'Customer', type: FilterType.text,   serverSide: false),
+    FilterDefinition(field: 'amount',          label: 'Amount',   type: FilterType.number, serverSide: false),
+    FilterDefinition(field: 'transaction_ref', label: 'UTR/Ref',  type: FilterType.text,   serverSide: false),
+  ],
+);
 
 class TopupRequestsScreen extends ConsumerStatefulWidget {
   const TopupRequestsScreen({super.key});
@@ -33,19 +49,7 @@ class TopupRequestsScreen extends ConsumerStatefulWidget {
 class _TopupRequestsScreenState extends ConsumerState<TopupRequestsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabs;
-  DateTime? _dateFrom;
-  DateTime? _dateTo;
-  String _customerSearch = '';
-  String _salesmanSearch = '';
-  final _customerCtrl = TextEditingController();
-  final _salesmanCtrl = TextEditingController();
-  List<ActiveFilter> _activeFilters = [];
-
-  static const _filterDefs = [
-    FilterDefinition(field: 'payment_method', label: 'Method', type: FilterType.select, options: ['cash', 'upi', 'bank_transfer']),
-    FilterDefinition(field: 'amount', label: 'Amount', type: FilterType.number),
-    FilterDefinition(field: 'transaction_ref', label: 'UTR/Ref', type: FilterType.text),
-  ];
+  FilterFormState _filter = FilterFormState.empty;
 
   @override
   void initState() {
@@ -54,43 +58,14 @@ class _TopupRequestsScreenState extends ConsumerState<TopupRequestsScreen>
   }
 
   @override
-  void dispose() {
-    _tabs.dispose();
-    _customerCtrl.dispose();
-    _salesmanCtrl.dispose();
-    super.dispose();
-  }
+  void dispose() { _tabs.dispose(); super.dispose(); }
 
-  String _fmt(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
-
-  bool get _hasDate => _dateFrom != null || _dateTo != null;
-
-  String _key(String status) =>
-      '$status|${_dateFrom != null ? _fmt(_dateFrom!) : ''}|${_dateTo != null ? _fmt(_dateTo!) : ''}';
+  String _key(String status) => '$status|${_filter.toProviderKey()}';
 
   void _invalidateAll() {
-    ref.invalidate(topupRequestsProvider(_key('pending')));
-    ref.invalidate(topupRequestsProvider(_key('approved')));
-    ref.invalidate(topupRequestsProvider(_key('rejected')));
-    ref.invalidate(topupRequestsProvider(_key('all')));
-  }
-
-  Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2024),
-      lastDate: DateTime.now(),
-      initialDateRange: _dateFrom != null && _dateTo != null
-          ? DateTimeRange(start: _dateFrom!, end: _dateTo!)
-          : null,
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-            colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32))),
-        child: child!,
-      ),
-    );
-    if (picked != null) setState(() { _dateFrom = picked.start; _dateTo = picked.end; });
+    for (final s in ['pending', 'approved', 'rejected', 'all']) {
+      ref.invalidate(topupRequestsProvider(_key(s)));
+    }
   }
 
   @override
@@ -147,104 +122,12 @@ class _TopupRequestsScreenState extends ConsumerState<TopupRequestsScreen>
             ]),
           ),
 
-        // ── Filters ───────────────────────────────────────────────────────
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          child: Column(children: [
-            // Customer search
-            TextField(
-              controller: _customerCtrl,
-              onChanged: (v) => setState(() => _customerSearch = v.trim()),
-              decoration: InputDecoration(
-                hintText: 'Customer name / phone / amount / method…',
-                prefixIcon: const Icon(Icons.person_search_outlined, size: 18),
-                suffixIcon: _customerSearch.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 16),
-                        onPressed: () { _customerCtrl.clear(); setState(() => _customerSearch = ''); })
-                    : null,
-                isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Salesman search
-            TextField(
-              controller: _salesmanCtrl,
-              onChanged: (v) => setState(() => _salesmanSearch = v.trim()),
-              decoration: InputDecoration(
-                hintText: 'Salesman name…',
-                prefixIcon: const Icon(Icons.badge_outlined, size: 18),
-                suffixIcon: _salesmanSearch.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 16),
-                        onPressed: () { _salesmanCtrl.clear(); setState(() => _salesmanSearch = ''); })
-                    : null,
-                isDense: true,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              ),
-            ),
-            const SizedBox(height: 8),
-            FilterChipBar(
-              availableFilters: _filterDefs,
-              activeFilters: _activeFilters,
-              onAdd: (f) => setState(() => _activeFilters = [..._activeFilters.where((e) => e.field != f.field), f]),
-              onRemove: (f) => setState(() => _activeFilters = _activeFilters.where((e) => e.field != f.field).toList()),
-            ),
-            const SizedBox(height: 4),
-            // Date row
-            Row(children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: _pickDateRange,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                    decoration: BoxDecoration(
-                      color: _hasDate ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300),
-                    ),
-                    child: Row(children: [
-                      Icon(Icons.date_range, size: 15,
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey),
-                      const SizedBox(width: 6),
-                      Expanded(child: Text(
-                        _hasDate
-                            ? '${_fmt(_dateFrom!)} → ${_fmt(_dateTo!)}'
-                            : 'Filter by date range',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade600,
-                          fontWeight: _hasDate ? FontWeight.w600 : FontWeight.normal,
-                        ),
-                      )),
-                      Icon(Icons.edit_calendar_outlined, size: 13,
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey),
-                    ]),
-                  ),
-                ),
-              ),
-              if (_hasDate) ...[
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => setState(() { _dateFrom = null; _dateTo = null; }),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: Icon(Icons.close, size: 14, color: Colors.red.shade700),
-                  ),
-                ),
-              ],
-            ]),
-          ]),
+        // ── FilterBar ─────────────────────────────────────────────────────
+        FilterBar(
+          config: _topupFilterConfig,
+          state: _filter,
+          onChanged: (f) => setState(() => _filter = f),
+          onLoad: _invalidateAll,
         ),
         const Divider(height: 1),
 
@@ -253,9 +136,9 @@ class _TopupRequestsScreenState extends ConsumerState<TopupRequestsScreen>
           child: TabBarView(
             controller: _tabs,
             children: [
-              _TopupList(providerKey: _key('pending'),  customerSearch: _customerSearch, salesmanSearch: _salesmanSearch, activeFilters: _activeFilters, onAction: _invalidateAll),
-              _TopupList(providerKey: _key('approved'), customerSearch: _customerSearch, salesmanSearch: _salesmanSearch, activeFilters: _activeFilters, onAction: _invalidateAll),
-              _TopupList(providerKey: _key('rejected'), customerSearch: _customerSearch, salesmanSearch: _salesmanSearch, activeFilters: _activeFilters, onAction: _invalidateAll),
+              _TopupList(providerKey: _key('pending'),  search: _filter.search, activeFilters: _filter.toLocalFilters(), onAction: _invalidateAll),
+              _TopupList(providerKey: _key('approved'), search: _filter.search, activeFilters: _filter.toLocalFilters(), onAction: _invalidateAll),
+              _TopupList(providerKey: _key('rejected'), search: _filter.search, activeFilters: _filter.toLocalFilters(), onAction: _invalidateAll),
             ],
           ),
         ),
@@ -263,8 +146,6 @@ class _TopupRequestsScreenState extends ConsumerState<TopupRequestsScreen>
     );
   }
 }
-
-// ── Summary card ──────────────────────────────────────────────────────────────
 
 class _SummaryCard extends StatelessWidget {
   final String label, value;
@@ -293,27 +174,13 @@ class _SummaryCard extends StatelessWidget {
 
 class _TopupList extends ConsumerWidget {
   final String providerKey;
-  final String customerSearch;
-  final String salesmanSearch;
+  final String search;
   final List<ActiveFilter> activeFilters;
   final VoidCallback onAction;
-  const _TopupList({required this.providerKey, required this.customerSearch, required this.salesmanSearch, required this.activeFilters, required this.onAction});
+  const _TopupList({required this.providerKey, required this.search, required this.activeFilters, required this.onAction});
 
   bool _matches(Map<String, dynamic> r) {
-    if (customerSearch.isNotEmpty) {
-      final q = customerSearch.toLowerCase();
-      final customerOk = (r['user_name']?.toString().toLowerCase().contains(q) ?? false)
-          || (r['user_phone']?.toString().contains(q) ?? false)
-          || (r['payment_method']?.toString().toLowerCase().contains(q) ?? false)
-          || (r['transaction_ref']?.toString().toLowerCase().contains(q) ?? false)
-          || r['amount'].toString().contains(q);
-      if (!customerOk) return false;
-    }
-    if (salesmanSearch.isNotEmpty) {
-      final q = salesmanSearch.toLowerCase();
-      final salesmanOk = r['collector_name']?.toString().toLowerCase().contains(q) ?? false;
-      if (!salesmanOk) return false;
-    }
+    if (!matchesSearch(r, search, _topupSearchFields)) return false;
     if (!matchesAllFilters(r, activeFilters)) return false;
     return true;
   }
@@ -334,7 +201,7 @@ class _TopupList extends ConsumerWidget {
                   size: 64, color: Colors.grey.shade300),
               const SizedBox(height: 12),
               Text(
-                (customerSearch.isNotEmpty || salesmanSearch.isNotEmpty || activeFilters.isNotEmpty)
+                (search.isNotEmpty || activeFilters.isNotEmpty)
                     ? 'No results for current filters'
                     : 'No ${providerKey.split('|').first} requests',
                 style: const TextStyle(color: Colors.grey, fontSize: 16),

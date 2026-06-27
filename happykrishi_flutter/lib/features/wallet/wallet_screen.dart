@@ -7,8 +7,13 @@ import '../../core/models/models.dart';
 import '../../core/services/pdf_service.dart';
 import 'topup_screen.dart';
 import '../../core/widgets/active_filter.dart';
-import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/widgets/filter_form.dart';
 import '../../core/utils/error_handler.dart';
+
+final _customerCreditAdvancesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final res = await ref.read(dioProvider).get('/api/wallet/credit-advances');
+  return List<Map<String, dynamic>>.from((res.data as Map)['advances'] as List? ?? []);
+});
 
 final walletProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -21,9 +26,11 @@ final walletTxnsProvider = FutureProvider.autoDispose.family<Map<String, dynamic
   final type     = parts[0].isNotEmpty ? parts[0] : null;
   final dateFrom = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
   final dateTo   = parts.length > 2 && parts[2].isNotEmpty ? parts[2] : null;
+  final page     = parts.length > 3 && parts[3].isNotEmpty ? int.tryParse(parts[3]) ?? 1 : 1;
   final dio = ref.read(dioProvider);
   final res = await dio.get(Endpoints.walletTransactions, queryParameters: {
-    'limit': 100,
+    'limit': 50,
+    'page': page,
     if (type     != null) 'type':      type,
     if (dateFrom != null) 'date_from': dateFrom,
     if (dateTo   != null) 'date_to':   dateTo,
@@ -41,12 +48,22 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   String? _filter;
   DateTime? _dateFrom;
   DateTime? _dateTo;
-  List<ActiveFilter> _activeFilters = [];
+  FilterFormState _chipFilter = FilterFormState.empty;
 
-  static const _filterDefs = [
-    FilterDefinition(field: 'amount', label: 'Amount', type: FilterType.number),
-    FilterDefinition(field: 'description', label: 'Description', type: FilterType.text),
-  ];
+  List<WalletTransaction> _allTxns = [];
+  int _txnPage = 1;
+  int _txnTotal = 0;
+  bool _txnLoadingMore = false;
+
+  static const _walletFilterConfig = FilterFormConfig(
+    title: 'Filter Transactions',
+    showDateRange: false,
+    showTextSearch: false,
+    dynamicFields: [
+      FilterDefinition(field: 'amount',      label: 'Amount',      type: FilterType.number, serverSide: false),
+      FilterDefinition(field: 'description', label: 'Description', type: FilterType.text,   serverSide: false),
+    ],
+  );
 
   static const _filters = [
     (key: 'topup',    label: 'Top-up',       icon: Icons.payments,              color: Color(0xFFE65100)),
@@ -58,13 +75,38 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     (key: 'fee',      label: 'Fees',          icon: Icons.lock_outline,          color: Color(0xFF424242)),
   ];
 
-  String get _providerKey =>
+  String get _filterBase =>
       '${_filter ?? ''}|${_dateFrom != null ? _fmt(_dateFrom!) : ''}|${_dateTo != null ? _fmt(_dateTo!) : ''}';
 
+  String get _providerKey => '$_filterBase|$_txnPage';
+
   bool get _hasDateFilter => _dateFrom != null || _dateTo != null;
+  bool get _hasMoreTxns => _allTxns.length < _txnTotal;
 
   String _fmt(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  void _resetTxns() {
+    setState(() { _allTxns = []; _txnPage = 1; _txnTotal = 0; });
+  }
+
+  Future<void> _loadMoreTxns() async {
+    if (_txnLoadingMore || !_hasMoreTxns) return;
+    setState(() => _txnLoadingMore = true);
+    try {
+      final nextPage = _txnPage + 1;
+      final data = await ref.read(walletTxnsProvider('$_filterBase|$nextPage').future);
+      final newTxns = (data['transactions'] as List).cast<Map<String, dynamic>>().map(WalletTransaction.fromJson).toList();
+      setState(() {
+        _allTxns = [..._allTxns, ...newTxns];
+        _txnPage = nextPage;
+        _txnTotal = (data['total'] as num?)?.toInt() ?? _txnTotal;
+        _txnLoadingMore = false;
+      });
+    } catch (_) {
+      setState(() => _txnLoadingMore = false);
+    }
+  }
 
   Future<void> _pickDateRange() async {
     final picked = await showDateRangePicker(
@@ -84,6 +126,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     );
     if (picked != null) {
       setState(() { _dateFrom = picked.start; _dateTo = picked.end; });
+      _resetTxns();
     }
   }
 
@@ -91,7 +134,9 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     ref.invalidate(walletProvider);
     ref.invalidate(walletTxnsProvider);
     ref.invalidate(myTopupRequestsProvider);
+    ref.invalidate(_customerCreditAdvancesProvider);
     ref.read(authStateProvider.notifier).refreshUser();
+    _resetTxns();
   }
 
   Widget _buildFilterBar() {
@@ -183,7 +228,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 ),
                 if (_hasDateFilter)
                   GestureDetector(
-                    onTap: () => setState(() { _dateFrom = null; _dateTo = null; }),
+                    onTap: () { setState(() { _dateFrom = null; _dateTo = null; }); _resetTxns(); },
                     child: Icon(Icons.close, size: 14, color: Colors.grey.shade500),
                   )
                 else
@@ -197,7 +242,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
         if (_filter != null || _hasDateFilter) ...[
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: () => setState(() { _filter = null; _dateFrom = null; _dateTo = null; }),
+            onTap: () { setState(() { _filter = null; _dateFrom = null; _dateTo = null; }); _resetTxns(); },
             child: Container(
               padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
@@ -251,6 +296,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                         ? const Icon(Icons.check, color: Color(0xFF2E7D32)) : null,
                     onTap: () {
                       setState(() => _filter = null);
+                      _resetTxns();
                       Navigator.pop(context);
                     },
                   ),
@@ -267,6 +313,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                         ? Icon(Icons.check, color: f.color) : null,
                     onTap: () {
                       setState(() => _filter = _filter == f.key ? null : f.key);
+                      _resetTxns();
                       Navigator.pop(context);
                     },
                   )),
@@ -346,7 +393,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
               ),
             ),
 
-            // Pending topup banner
+            // Pending topup banner (tap to add money)
             if (pending > 0)
               SliverToBoxAdapter(
                 child: GestureDetector(
@@ -375,79 +422,118 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 ),
               ),
 
+            // Inline topup request history
+            if ((requests.value?.isNotEmpty ?? false))
+              SliverToBoxAdapter(
+                child: _TopupRequestsSection(
+                  requests: requests.value!,
+                  onAddMore: () => _showAddMoneySheet(context),
+                ),
+              ),
+
+            // Credit advances received
+            SliverToBoxAdapter(child: _CreditAdvancesSection()),
+
             // Filter bar
             SliverToBoxAdapter(child: _buildFilterBar()),
 
-            // FilterChipBar
+            // Chip filters via FilterBar
             SliverToBoxAdapter(
-              child: FilterChipBar(
-                availableFilters: _filterDefs,
-                activeFilters: _activeFilters,
-                onAdd: (f) => setState(() => _activeFilters = [..._activeFilters.where((e) => e.field != f.field), f]),
-                onRemove: (f) => setState(() => _activeFilters = _activeFilters.where((e) => e.field != f.field).toList()),
+              child: FilterBar(
+                config: _walletFilterConfig,
+                state: _chipFilter,
+                onChanged: (f) => setState(() => _chipFilter = f),
+                onLoad: () {
+                  ref.invalidate(walletTxnsProvider(_providerKey));
+                  ref.invalidate(walletProvider);
+                },
               ),
             ),
 
             // Transaction list
             txns.when(
-              loading: () => const SliverFillRemaining(
-                child: Center(child: CircularProgressIndicator()),
-              ),
+              loading: () => _allTxns.isEmpty
+                  ? const SliverFillRemaining(child: Center(child: CircularProgressIndicator()))
+                  : const SliverToBoxAdapter(child: SizedBox.shrink()),
               error: (e, _) { logError('wallet', e); return SliverFillRemaining(child: Center(child: Text(friendlyError(e)))); },
               data: (data) {
+                // Populate _allTxns from page 1 on first load
                 final rawList = (data['transactions'] as List).cast<Map<String, dynamic>>();
-                final filteredRaw = _activeFilters.isEmpty ? rawList : rawList.where((r) => matchesAllFilters(r, _activeFilters)).toList();
-                final list = filteredRaw.map(WalletTransaction.fromJson).toList();
+                final total = (data['total'] as num?)?.toInt() ?? rawList.length;
+                if (_txnPage == 1 && _allTxns.isEmpty && rawList.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() {
+                      _allTxns = rawList.map(WalletTransaction.fromJson).toList();
+                      _txnTotal = total;
+                    });
+                  });
+                }
+                final filtered = _chipFilter.dynamicFilters.isEmpty
+                    ? _allTxns
+                    : _allTxns.where((t) => matchesAllFilters(
+                        {'amount': t.amount, 'description': t.description},
+                        _chipFilter.toLocalFilters(_walletFilterConfig))).toList();
 
-                if (list.isEmpty) {
+                if (filtered.isEmpty) {
                   return SliverFillRemaining(
                     child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey),
-                          const SizedBox(height: 12),
-                          const Text('No transactions', style: TextStyle(color: Colors.grey)),
-                          if (_filter != null || _hasDateFilter) ...[
-                            const SizedBox(height: 8),
-                            TextButton(
-                              onPressed: () => setState(() {
-                                _filter = null;
-                                _dateFrom = null;
-                                _dateTo = null;
-                              }),
-                              child: const Text('Clear filters'),
-                            ),
-                          ],
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        const Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey),
+                        const SizedBox(height: 12),
+                        const Text('No transactions', style: TextStyle(color: Colors.grey)),
+                        if (_filter != null || _hasDateFilter) ...[
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: () { setState(() { _filter = null; _dateFrom = null; _dateTo = null; }); _resetTxns(); },
+                            child: const Text('Clear filters'),
+                          ),
                         ],
-                      ),
+                      ]),
                     ),
                   );
                 }
 
-                final grouped = _groupByDate(list);
+                final grouped = _groupByDate(filtered);
                 final groups  = grouped.keys.toList();
 
                 return SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (_, i) {
-                      final date  = groups[i];
-                      final items = grouped[date]!;
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 16, bottom: 8),
-                            child: Text(date,
-                                style: const TextStyle(fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey, letterSpacing: 0.5)),
+                      if (i < groups.length) {
+                        final date  = groups[i];
+                        final items = grouped[date]!;
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 16, bottom: 8),
+                              child: Text(date,
+                                  style: const TextStyle(fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey, letterSpacing: 0.5)),
+                            ),
+                            ...items.map((t) => _TxnCard(txn: t)),
+                          ]),
+                        );
+                      }
+                      // Load More button
+                      if (_hasMoreTxns) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: _txnLoadingMore
+                                ? const CircularProgressIndicator()
+                                : ElevatedButton.icon(
+                                    icon: const Icon(Icons.expand_more),
+                                    label: Text('Load More (${_allTxns.length} of $_txnTotal)'),
+                                    onPressed: _loadMoreTxns,
+                                  ),
                           ),
-                          ...items.map((t) => _TxnCard(txn: t)),
-                        ]),
-                      );
+                        );
+                      }
+                      return const SizedBox.shrink();
                     },
-                    childCount: groups.length,
+                    childCount: groups.length + 1,
                   ),
                 );
               },
@@ -745,7 +831,13 @@ class _TxnCard extends StatelessWidget {
     if (type == 'discount' && ref == 'reward') { return (color: const Color(0xFF6A1B9A), icon: Icons.card_giftcard, label: 'Cashback Reward'); }
     if (type == 'credit' && ref == 'admin') { return (color: const Color(0xFF1565C0), icon: Icons.admin_panel_settings, label: 'Admin Credit'); }
     if (type == 'debit' && ref == 'admin') { return (color: const Color(0xFFC62828), icon: Icons.remove_circle, label: 'Admin Deduction'); }
-    if (type == 'credit' && ref == 'topup') { return (color: const Color(0xFFE65100), icon: Icons.payments, label: 'Cash Topup'); }
+    if (type == 'credit' && ref == 'topup') {
+      final desc = txn.description ?? '';
+      if (desc.startsWith('Credit advance by')) {
+        return (color: Colors.indigo, icon: Icons.add_card_outlined, label: desc);
+      }
+      return (color: const Color(0xFFE65100), icon: Icons.payments, label: 'Cash Topup');
+    }
     if (type == 'debit' && ref == 'order') { return (color: const Color(0xFFC62828), icon: Icons.shopping_cart, label: 'Order Payment'); }
     if (type == 'refund' && ref == 'order') { return (color: const Color(0xFF00695C), icon: Icons.undo, label: 'Order Refund'); }
     if (type == 'adjustment') { return (color: const Color(0xFFE65100), icon: Icons.scale, label: 'Weight Adjustment'); }
@@ -814,6 +906,205 @@ class _TxnCard extends StatelessWidget {
           Text('Bal ₹${txn.balanceAfter.toStringAsFixed(2)}',
               style: const TextStyle(fontSize: 10, color: Colors.grey)),
         ]),
+      ]),
+    );
+  }
+}
+
+// ── Inline topup requests section ─────────────────────────────────────────────
+
+// ── Credit Advances Section ───────────────────────────────────────────────────
+
+class _CreditAdvancesSection extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(_customerCreditAdvancesProvider);
+    return async.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (advances) {
+        if (advances.isEmpty) return const SizedBox.shrink();
+        final unpaid = advances.where((a) => (a['payment_received'] as int? ?? 0) == 0).toList();
+        return Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.indigo.shade100),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+              child: Row(children: [
+                const Icon(Icons.add_card_outlined, size: 16, color: Colors.indigo),
+                const SizedBox(width: 6),
+                const Text('Credit Advances',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo)),
+                const Spacer(),
+                if (unpaid.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.shade200),
+                    ),
+                    child: Text('${unpaid.length} pending payment',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold,
+                            color: Colors.orange.shade700)),
+                  ),
+              ]),
+            ),
+            const Divider(height: 1),
+            ...advances.take(5).map((a) {
+              final isPaid   = (a['payment_received'] as int? ?? 0) == 1;
+              final amount   = (a['amount'] as num).toDouble();
+              final byRole   = a['credited_by_role'] as String? ?? '';
+              final byName   = a['credited_by_name'] as String? ?? byRole;
+              final note     = a['admin_note'] as String?;
+              final date     = (a['created_at'] as String).substring(0, 10);
+              final paidDate = a['payment_received_at'] != null
+                  ? (a['payment_received_at'] as String).substring(0, 10)
+                  : null;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(isPaid ? Icons.check_circle_outline : Icons.hourglass_empty,
+                      size: 16, color: isPaid ? Colors.green : Colors.orange),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('₹${amount.toStringAsFixed(0)} credit from $byName ($byRole)',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                    if (note != null && note.isNotEmpty)
+                      Text(note, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text(isPaid
+                        ? 'Given: $date  •  Paid back: ${paidDate ?? ''}'
+                        : 'Given: $date  •  Payment pending',
+                        style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  ])),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isPaid ? Colors.green.shade50 : Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(isPaid ? 'Paid' : 'Pending',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold,
+                            color: isPaid ? Colors.green : Colors.orange)),
+                  ),
+                ]),
+              );
+            }),
+            if (advances.length > 5)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+                child: Text('+${advances.length - 5} more',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ),
+            const SizedBox(height: 12),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+class _TopupRequestsSection extends StatefulWidget {
+  final List<Map<String, dynamic>> requests;
+  final VoidCallback onAddMore;
+  const _TopupRequestsSection({required this.requests, required this.onAddMore});
+
+  @override
+  State<_TopupRequestsSection> createState() => _TopupRequestsSectionState();
+}
+
+class _TopupRequestsSectionState extends State<_TopupRequestsSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = [...widget.requests]
+      ..sort((a, b) => (b['created_at'] as String).compareTo(a['created_at'] as String));
+    final visible = _expanded ? sorted : sorted.take(3).toList();
+    final pending = sorted.where((r) => r['status'] == 'pending').length;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Text('Topup Requests', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          if (pending > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange.shade300)),
+              child: Text('$pending pending', style: TextStyle(fontSize: 10, color: Colors.orange.shade800, fontWeight: FontWeight.bold)),
+            ),
+          ],
+          const Spacer(),
+          TextButton.icon(
+            icon: const Icon(Icons.add, size: 14),
+            label: const Text('New', style: TextStyle(fontSize: 12)),
+            onPressed: widget.onAddMore,
+            style: TextButton.styleFrom(minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 8)),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        ...visible.map((r) {
+          final status = r['status'] as String;
+          final amount = (r['amount'] as num).toDouble();
+          final method = r['payment_method'] as String? ?? 'cash';
+          final statusColor = status == 'approved' ? const Color(0xFF2E7D32)
+              : status == 'rejected' ? Colors.red : Colors.orange;
+          final statusIcon  = status == 'approved' ? Icons.check_circle
+              : status == 'rejected' ? Icons.cancel_outlined : Icons.hourglass_top;
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: statusColor.withValues(alpha: 0.25)),
+            ),
+            child: Row(children: [
+              Icon(method == 'upi' ? Icons.credit_card_outlined : Icons.payments_outlined,
+                  color: Colors.grey, size: 18),
+              const SizedBox(width: 10),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(method == 'upi' ? 'UPI' : method == 'credit_advance' ? 'Credit Advance' : 'Cash',
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                Text((r['created_at'] as String).substring(0, 10),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                if (r['admin_note'] != null && (r['admin_note'] as String).isNotEmpty)
+                  Text(r['admin_note'] as String,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ])),
+              const SizedBox(width: 8),
+              Text('₹${amount.toStringAsFixed(0)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF2E7D32))),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(statusIcon, size: 11, color: statusColor),
+                  const SizedBox(width: 3),
+                  Text(status.toUpperCase(), style: TextStyle(fontSize: 9, color: statusColor, fontWeight: FontWeight.bold)),
+                ]),
+              ),
+            ]),
+          );
+        }),
+        if (sorted.length > 3)
+          TextButton(
+            onPressed: () => setState(() => _expanded = !_expanded),
+            style: TextButton.styleFrom(minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 4)),
+            child: Text(_expanded ? 'Show less' : 'Show all ${sorted.length}',
+                style: const TextStyle(fontSize: 12)),
+          ),
       ]),
     );
   }

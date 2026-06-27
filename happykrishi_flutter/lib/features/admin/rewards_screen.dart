@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/filter_form.dart';
+import '../../core/widgets/active_filter.dart';
 
 final rewardRulesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -23,6 +25,18 @@ final productsAndCategoriesProvider = FutureProvider.autoDispose<Map<String, dyn
   final res = await dio.get(Endpoints.adminRewardsProductsCategories);
   return res.data as Map<String, dynamic>;
 });
+
+const _payoutsFilterConfig = FilterFormConfig(
+  title: 'Filter Payouts',
+  showDateRange: false,
+  showTextSearch: true,
+  textSearchHint: 'Customer name, product, rule…',
+  dynamicFields: [
+    FilterDefinition(field: 'customer_name', label: 'Customer',     type: FilterType.text,   serverSide: false),
+    FilterDefinition(field: 'target_name',   label: 'Product/Rule', type: FilterType.text,   serverSide: false),
+    FilterDefinition(field: 'month',         label: 'Month',        type: FilterType.text,   serverSide: false),
+  ],
+);
 
 class RewardsScreen extends ConsumerStatefulWidget {
   const RewardsScreen({super.key});
@@ -57,6 +71,14 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen>
             icon: const Icon(Icons.home_outlined),
             tooltip: 'Home',
             onPressed: () => context.go('/admin/dashboard'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () {
+              ref.invalidate(rewardRulesProvider);
+              ref.invalidate(rewardPayoutsProvider(_selectedPayoutMonth));
+            },
           ),
           IconButton(
             icon: const Icon(Icons.play_circle_outline),
@@ -433,6 +455,7 @@ class _PayoutsTab extends ConsumerStatefulWidget {
 class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
   String _statusFilter = 'pending';
   final Set<int> _selectedIds = {};
+  FilterFormState _filter = FilterFormState.empty;
 
   Future<void> _approveAll(String month) async {
     try {
@@ -498,9 +521,21 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
     return data.when(
       data: (d) {
         final allPayouts = (d['payouts'] as List? ?? []).cast<Map<String, dynamic>>();
-        final payouts = _statusFilter.isEmpty
-            ? allPayouts
-            : allPayouts.where((p) => p['status'] == _statusFilter).toList();
+        // Apply status filter, then text search + dynamic filters locally
+        final localFilters = _filter.toLocalFilters();
+        final searchQ = _filter.search.toLowerCase();
+        final payouts = allPayouts.where((p) {
+          if (_statusFilter.isNotEmpty && p['status'] != _statusFilter) return false;
+          if (searchQ.isNotEmpty) {
+            final hit = (p['customer_name']?.toString().toLowerCase().contains(searchQ) ?? false)
+                || (p['target_name']?.toString().toLowerCase().contains(searchQ) ?? false)
+                || (p['rule_name']?.toString().toLowerCase().contains(searchQ) ?? false)
+                || (p['month']?.toString().contains(searchQ) ?? false);
+            if (!hit) return false;
+          }
+          if (!matchesAllFilters(p, localFilters)) return false;
+          return true;
+        }).toList();
         final months = (d['months'] as List?)?.cast<String>() ?? [];
         final summary = (d['summary'] as List? ?? []).cast<Map<String, dynamic>>();
         final pendingCount = (summary.firstWhere((s) => s['status'] == 'pending', orElse: () => {'count': 0})['count'] as num).toInt();
@@ -546,6 +581,13 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
                     ),
                   )),
             ]),
+          ),
+
+          // Text search + dynamic filter bar
+          FilterBar(
+            config: _payoutsFilterConfig,
+            state: _filter,
+            onChanged: (f) => setState(() => _filter = f),
           ),
 
           // Pending summary + Approve All

@@ -28,6 +28,11 @@ class NotificationsScreen extends ConsumerWidget {
             tooltip: 'Home',
             onPressed: () => context.go('/home'),
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => ref.invalidate(notificationsProvider),
+          ),
         ],
       ),
       body: notifs.when(

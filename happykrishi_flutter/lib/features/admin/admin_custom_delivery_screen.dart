@@ -62,6 +62,11 @@ class _AdminCustomDeliveryScreenState
             tooltip: 'Home',
             onPressed: () => context.go('/admin/dashboard'),
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: _invalidateAll,
+          ),
         ],
         bottom: TabBar(
           controller: _tabs,
@@ -753,41 +758,94 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
 
 // ── Whitelisted Pincodes tab ──────────────────────────────────────────────────
 
-class _WhitelistedPincodesTab extends ConsumerWidget {
+class _WhitelistedPincodesTab extends ConsumerStatefulWidget {
   final VoidCallback onChanged;
   const _WhitelistedPincodesTab({required this.onChanged});
+  @override
+  ConsumerState<_WhitelistedPincodesTab> createState() => _WhitelistedPincodesTabState();
+}
+
+class _WhitelistedPincodesTabState extends ConsumerState<_WhitelistedPincodesTab> {
+  final _searchCtrl = TextEditingController();
+  String _searchQ = '';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final pincodesAsync = ref.watch(whitelistedPincodesProvider);
 
     return pincodesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) { logError('admin-custom-delivery-pincodes', e); return Center(child: Text(friendlyError(e))); },
-      data: (list) => list.isEmpty
-          ? Center(
+      data: (all) {
+        final q = _searchQ.toLowerCase();
+        final list = q.isEmpty ? all : all.where((p) {
+          return (p['pincode']?.toString().contains(q) ?? false)
+              || (p['district']?.toString().toLowerCase().contains(q) ?? false)
+              || (p['state']?.toString().toLowerCase().contains(q) ?? false)
+              || (p['requester_name']?.toString().toLowerCase().contains(q) ?? false);
+        }).toList();
+
+        return Column(children: [
+          // Search bar
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search pincode, district, requester…',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                isDense: true,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                suffixIcon: _searchQ.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        onPressed: () { _searchCtrl.clear(); setState(() => _searchQ = ''); })
+                    : null,
+              ),
+              onChanged: (v) => setState(() => _searchQ = v.trim()),
+            ),
+          ),
+          if (all.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(children: [
+                Text('${list.length} of ${all.length} pincodes',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ]),
+            ),
+          const SizedBox(height: 4),
+          if (list.isEmpty)
+            Expanded(child: Center(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                 Icon(Icons.location_on_outlined, size: 64, color: Colors.grey.shade300),
                 const SizedBox(height: 12),
-                const Text('No custom pincodes yet',
-                    style: TextStyle(color: Colors.grey, fontSize: 16)),
-                const SizedBox(height: 6),
-                const Text('Approved custom delivery requests\nwill appear here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 13)),
+                Text(_searchQ.isEmpty ? 'No custom pincodes yet' : 'No pincodes match "$_searchQ"',
+                    style: const TextStyle(color: Colors.grey, fontSize: 16)),
               ]),
-            )
-          : RefreshIndicator(
-              onRefresh: () async => ref.invalidate(whitelistedPincodesProvider),
-              child: ListView.builder(
-                padding: const EdgeInsets.all(14),
-                itemCount: list.length,
-                itemBuilder: (_, i) => _PincodeTile(
-                  data: list[i],
-                  onChanged: onChanged,
+            ))
+          else
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async => ref.invalidate(whitelistedPincodesProvider),
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+                  itemCount: list.length,
+                  itemBuilder: (_, i) => _PincodeTile(
+                    data: list[i],
+                    onChanged: widget.onChanged,
+                  ),
                 ),
               ),
             ),
+        ]);
+      },
     );
   }
 }
@@ -843,6 +901,15 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _showAddressesSheet(BuildContext ctx, WidgetRef ref, String pincode, int count) {
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _PincodeAddressesSheet(pincode: pincode, count: count),
+    );
   }
 
   Future<void> _edit() async {
@@ -950,6 +1017,17 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
                 onPressed: _edit,
               ),
               IconButton(
+                icon: const Icon(Icons.table_rows_outlined, size: 20),
+                tooltip: 'Delivery Tiers',
+                color: Colors.indigo,
+                onPressed: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                  builder: (_) => _DeliveryTiersSheet(pincode: pincode),
+                ),
+              ),
+              IconButton(
                 icon: const Icon(Icons.delete_outline, size: 20),
                 tooltip: 'Remove pincode',
                 color: Colors.red,
@@ -969,8 +1047,11 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
           // Rules chips
           Wrap(spacing: 6, runSpacing: 4, children: [
             if (addrCount > 0)
-              _Chip(Icons.home_outlined, '$addrCount address${addrCount == 1 ? '' : 'es'}',
-                  Colors.blue),
+              GestureDetector(
+                onTap: () => _showAddressesSheet(context, ref, pincode, addrCount),
+                child: _Chip(Icons.home_outlined, '$addrCount address${addrCount == 1 ? '' : 'es'}',
+                    Colors.blue),
+              ),
             if (minOrder != null)
               _Chip(Icons.shopping_bag_outlined, 'Min ₹${minOrder.toStringAsFixed(0)}',
                   Colors.purple),
@@ -1190,6 +1271,359 @@ class _EditPincodeSheetState extends ConsumerState<_EditPincodeSheet> {
           ),
         ]),
       ),
+    );
+  }
+}
+
+// ── Delivery Tiers Sheet ──────────────────────────────────────────────────────
+
+class _DeliveryTiersSheet extends ConsumerStatefulWidget {
+  final String pincode;
+  const _DeliveryTiersSheet({required this.pincode});
+  @override
+  ConsumerState<_DeliveryTiersSheet> createState() => _DeliveryTiersSheetState();
+}
+
+class _DeliveryTiersSheetState extends ConsumerState<_DeliveryTiersSheet> {
+  List<Map<String, dynamic>> _rules = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRules();
+  }
+
+  Future<void> _loadRules() async {
+    setState(() => _loading = true);
+    try {
+      final res = await ref.read(dioProvider).get(Endpoints.pincodeRules(widget.pincode));
+      setState(() => _rules = List<Map<String, dynamic>>.from(res.data['rules']));
+    } catch (_) {} finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _showAddEditDialog([Map<String, dynamic>? existing]) async {
+    final minCtrl     = TextEditingController(text: existing?['min_subtotal']?.toString() ?? '0');
+    final maxCtrl     = TextEditingController(text: existing?['max_subtotal']?.toString() ?? '');
+    final chargeCtrl  = TextEditingController(text: existing?['delivery_charge']?.toString() ?? '');
+    final msgCtrl     = TextEditingController(text: existing?['blocked_message'] as String? ?? '');
+    bool isBlocked    = (existing?['blocked'] as int? ?? 0) == 1;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDs) => AlertDialog(
+          title: Text(existing == null ? 'Add Delivery Tier' : 'Edit Tier'),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Define a delivery charge rule for a subtotal range.',
+                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: TextField(
+                controller: minCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Min subtotal (₹)', prefixText: '₹ ', isDense: true, border: OutlineInputBorder()),
+              )),
+              const SizedBox(width: 10),
+              Expanded(child: TextField(
+                controller: maxCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Max subtotal (₹, blank = no limit)', prefixText: '₹ ', isDense: true, border: OutlineInputBorder()),
+              )),
+            ]),
+            const SizedBox(height: 10),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Block orders in this range', style: TextStyle(fontSize: 14)),
+              subtitle: const Text('Customer sees a message, cannot place order', style: TextStyle(fontSize: 12)),
+              value: isBlocked,
+              activeTrackColor: Colors.red,
+              onChanged: (v) => setDs(() => isBlocked = v),
+            ),
+            if (isBlocked) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: msgCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Message to customer *',
+                  hintText: 'e.g. Minimum ₹200 order required for this area',
+                  border: OutlineInputBorder(), isDense: true,
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: chargeCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Delivery charge (₹) *',
+                  prefixText: '₹ ',
+                  helperText: 'Enter 0 for free delivery',
+                  border: OutlineInputBorder(), isDense: true,
+                ),
+              ),
+            ],
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved != true || !mounted) return;
+
+    final min = double.tryParse(minCtrl.text.trim()) ?? 0;
+    final max = maxCtrl.text.trim().isEmpty ? null : double.tryParse(maxCtrl.text.trim());
+    final charge = isBlocked ? null : double.tryParse(chargeCtrl.text.trim());
+    if (!isBlocked && charge == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid delivery charge')));
+      return;
+    }
+    if (isBlocked && msgCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a message for blocked orders')));
+      return;
+    }
+
+    try {
+      final body = {
+        if (existing?['id'] != null) 'id': existing!['id'],
+        'min_subtotal': min,
+        if (max != null) 'max_subtotal': max,
+        if (!isBlocked) 'delivery_charge': charge,
+        'blocked': isBlocked ? 1 : 0,
+        if (isBlocked) 'blocked_message': msgCtrl.text.trim(),
+      };
+      if (existing?['id'] != null) {
+        await ref.read(dioProvider).put(Endpoints.pincodeRule(widget.pincode, existing!['id'] as int), data: body);
+      } else {
+        await ref.read(dioProvider).post(Endpoints.pincodeRules(widget.pincode), data: body);
+      }
+      _loadRules();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Tier saved ✅'), backgroundColor: Color(0xFF2E7D32),
+        ));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _delete(int id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete tier?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await ref.read(dioProvider).delete(Endpoints.pincodeRule(widget.pincode, id));
+    _loadRules();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 24),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.table_rows_outlined, color: Colors.indigo),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Delivery Tiers — ${widget.pincode}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+          IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+        ]),
+        const SizedBox(height: 4),
+        const Text('Rules are matched by subtotal range. First match wins.',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 12),
+        if (_loading)
+          const Center(child: CircularProgressIndicator())
+        else ...[
+          if (_rules.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: Text('No tiers set — standard distance-based pricing applies.',
+                  style: TextStyle(color: Colors.grey))),
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 320),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: _rules.length,
+                separatorBuilder: (_, i) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final r = _rules[i];
+                  final blocked = (r['blocked'] as int? ?? 0) == 1;
+                  final minS = (r['min_subtotal'] as num).toStringAsFixed(0);
+                  final maxS = r['max_subtotal'] != null ? '₹${(r['max_subtotal'] as num).toStringAsFixed(0)}' : '∞';
+                  final rangeLabel = '₹$minS – $maxS';
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: blocked ? Colors.red.shade50 : Colors.green.shade50,
+                      child: Icon(blocked ? Icons.block : Icons.local_shipping_outlined,
+                          color: blocked ? Colors.red : Colors.green, size: 18),
+                    ),
+                    title: Text(rangeLabel, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    subtitle: Text(
+                      blocked
+                          ? r['blocked_message'] as String? ?? 'Blocked'
+                          : r['delivery_charge'] == 0 || r['delivery_charge'] == null
+                              ? 'FREE delivery'
+                              : '₹${(r['delivery_charge'] as num).toStringAsFixed(0)} delivery charge',
+                      style: TextStyle(fontSize: 12, color: blocked ? Colors.red : Colors.grey),
+                    ),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      IconButton(icon: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFF2E7D32)),
+                          onPressed: () => _showAddEditDialog(r)),
+                      IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                          onPressed: () => _delete(r['id'] as int)),
+                    ]),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Add Tier'),
+              onPressed: () => _showAddEditDialog(),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo, foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12)),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Pincode Addresses Sheet ───────────────────────────────────────────────────
+
+class _PincodeAddressesSheet extends ConsumerStatefulWidget {
+  final String pincode;
+  final int count;
+  const _PincodeAddressesSheet({required this.pincode, required this.count});
+
+  @override
+  ConsumerState<_PincodeAddressesSheet> createState() => _PincodeAddressesSheetState();
+}
+
+class _PincodeAddressesSheetState extends ConsumerState<_PincodeAddressesSheet> {
+  List<Map<String, dynamic>> _addresses = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await ref.read(dioProvider).get(Endpoints.pincodeAddresses(widget.pincode));
+      setState(() => _addresses = List<Map<String, dynamic>>.from(res.data['addresses']));
+    } catch (_) {} finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      maxChildSize: 0.9,
+      minChildSize: 0.35,
+      expand: false,
+      builder: (_, scrollCtrl) => Column(children: [
+        // Handle
+        Container(margin: const EdgeInsets.only(top: 10),
+            width: 36, height: 4,
+            decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+          child: Row(children: [
+            const Icon(Icons.home_outlined, color: Colors.blue, size: 20),
+            const SizedBox(width: 8),
+            Text('Addresses in ${widget.pincode}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(12)),
+              child: Text('${widget.count} total',
+                  style: TextStyle(fontSize: 12, color: Colors.blue.shade700, fontWeight: FontWeight.bold)),
+            ),
+            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+          ]),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _addresses.isEmpty
+                  ? const Center(child: Text('No addresses found', style: TextStyle(color: Colors.grey)))
+                  : ListView.separated(
+                      controller: scrollCtrl,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _addresses.length,
+                      separatorBuilder: (_, i) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final a = _addresses[i];
+                        final wallet = (a['wallet_balance'] as num?)?.toDouble() ?? 0;
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(0xFFE8F5E9),
+                            child: Text(
+                              (a['customer_name'] as String? ?? 'C')[0].toUpperCase(),
+                              style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          title: Text(a['customer_name'] as String? ?? '',
+                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('+91 ${a['customer_phone'] ?? ''}',
+                                style: const TextStyle(fontSize: 12)),
+                            Text(
+                              '${a['label'] ?? 'Address'}: ${a['address_line']}, ${a['city']}',
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              maxLines: 1, overflow: TextOverflow.ellipsis,
+                            ),
+                          ]),
+                          trailing: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            Text(
+                              wallet >= 0 ? '₹${wallet.toStringAsFixed(0)}' : '-₹${wallet.abs().toStringAsFixed(0)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13,
+                                color: wallet < 0 ? Colors.red : const Color(0xFF2E7D32),
+                              ),
+                            ),
+                            Text('wallet', style: const TextStyle(fontSize: 9, color: Colors.grey)),
+                          ]),
+                        );
+                      },
+                    ),
+        ),
+      ]),
     );
   }
 }

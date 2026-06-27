@@ -23,7 +23,7 @@ import '../../features/notifications/notifications_screen.dart';
 import '../../features/admin/dashboard_screen.dart';
 import '../../features/admin/admin_orders_screen.dart';
 import '../../features/admin/admin_products_screen.dart';
-import '../../features/admin/admin_agents_screen.dart';
+import '../../features/admin/admin_promo_codes_screen.dart';
 import '../../features/admin/wallet_credit_screen.dart';
 import '../../features/admin/config_screen.dart';
 import '../../features/admin/topup_requests_screen.dart';
@@ -33,27 +33,41 @@ import '../../features/admin/admin_customers_screen.dart';
 import '../../features/admin/admin_tiers_screen.dart';
 import '../../features/admin/salesman_screen.dart';
 import '../../features/admin/admin_custom_delivery_screen.dart';
+import '../../features/admin/admin_live_map_screen.dart';
 import '../../features/admin/admin_profile_screen.dart';
+import '../../features/admin/admin_referrals_screen.dart';
+import '../../features/admin/admin_money_screen.dart';
+import '../../features/referral/referral_screen.dart';
+import '../../features/salesman/salesman_money_screen.dart';
 import '../../features/checkout/custom_delivery_request_screen.dart';
 import '../../features/salesman/salesman_dashboard_screen.dart';
-import '../../features/agent/agent_home_screen.dart';
-import '../../features/agent/agent_deliver_screen.dart';
 import '../../features/info/app_info_screen.dart';
 import '../../features/auth/set_password_screen.dart';
 import '../../features/auth/change_password_screen.dart';
 
+// Bridges Riverpod authStateProvider → GoRouter refreshListenable
+class _AuthChangeNotifier extends ChangeNotifier {
+  _AuthChangeNotifier(Ref ref) {
+    ref.listen<AuthState>(authStateProvider, (prev, next) {
+      if (prev?.user != null && next.user == null) notifyListeners();
+    });
+  }
+}
+
 // Single GoRouter instance — no refreshListenable, navigation is explicit in each screen
 final routerProvider = Provider<GoRouter>((ref) {
+  final notifier = _AuthChangeNotifier(ref);
   // Protected routes that require a logged-in user
   const protectedPrefixes = [
     '/home', '/products', '/cart', '/checkout', '/orders',
     '/track/', '/wallet', '/profile', '/notifications', '/request-delivery',
     '/info',
-    '/admin/', '/salesman/', '/agent',
+    '/admin/', '/salesman/',
   ];
 
   return GoRouter(
     initialLocation: '/splash',
+    refreshListenable: notifier,
     redirect: (context, state) {
       final token = readTokenSync();
       final loc = state.uri.toString();
@@ -99,7 +113,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/admin/dashboard', builder: (_, _) => const DashboardScreen()),
       GoRoute(path: '/admin/orders', builder: (_, _) => const AdminOrdersScreen()),
       GoRoute(path: '/admin/products', builder: (_, _) => const AdminProductsScreen()),
-      GoRoute(path: '/admin/agents', builder: (_, _) => const AdminAgentsScreen()),
       GoRoute(path: '/admin/wallet-credit', builder: (_, _) => const WalletCreditScreen()),
       GoRoute(path: '/admin/config', builder: (_, _) => const ConfigScreen()),
       GoRoute(path: '/admin/topup-requests', builder: (_, _) => const TopupRequestsScreen()),
@@ -110,6 +123,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/admin/tiers', builder: (_, _) => const AdminTiersScreen()),
       GoRoute(path: '/admin/custom-delivery', builder: (ctx, s) => const AdminCustomDeliveryScreen()),
       GoRoute(path: '/admin/profile', builder: (ctx, s) => const AdminProfileScreen()),
+      GoRoute(path: '/admin/live-map', builder: (ctx, s) => const AdminLiveMapScreen()),
+      GoRoute(path: '/admin/track/:id', builder: (_, s) => TrackingScreen(
+        orderId: int.parse(s.pathParameters['id']!),
+        shareLocation: false,
+      )),
+      GoRoute(path: '/salesman/track/:id', builder: (_, s) => TrackingScreen(
+        orderId: int.parse(s.pathParameters['id']!),
+        shareLocation: false,
+      )),
+      GoRoute(path: '/admin/referrals', builder: (ctx, s) => const AdminReferralsScreen()),
+      GoRoute(path: '/admin/promo-codes', builder: (_, _) => const AdminPromoCodesScreen()),
+      GoRoute(path: '/admin/money', builder: (ctx, s) => const AdminMoneyScreen()),
+      GoRoute(path: '/salesman/money', builder: (ctx, s) => const SalesmanMoneyScreen()),
+      GoRoute(path: '/referral', builder: (ctx, s) => const ReferralScreen()),
 
       GoRoute(
         path: '/request-delivery',
@@ -121,9 +148,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
 
-      GoRoute(path: '/agent', builder: (_, _) => const AgentHomeScreen()),
-      GoRoute(path: '/agent/deliver/:id', builder: (_, s) => AgentDeliverScreen(deliveryId: int.parse(s.pathParameters['id']!))),
       GoRoute(path: '/salesman', builder: (_, _) => const SalesmanDashboardScreen()),
+      GoRoute(path: '/salesman/orders/:id', builder: (_, s) => OrderDetailScreen(
+        orderId: int.parse(s.pathParameters['id']!),
+      )),
       GoRoute(path: '/info', builder: (_, _) => const AppInfoScreen()),
     ],
   );
@@ -157,8 +185,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       context.go('/auth/otp');
     } else if (user.role == 'admin' || user.role == 'subadmin') {
       context.go('/admin/dashboard');
-    } else if (user.role == 'agent') {
-      context.go('/agent');
     } else if (user.role == 'salesman') {
       context.go('/salesman');
     } else {

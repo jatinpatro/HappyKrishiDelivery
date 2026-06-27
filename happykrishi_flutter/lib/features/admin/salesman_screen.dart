@@ -44,9 +44,25 @@ class _SalesmanScreenState extends ConsumerState<SalesmanScreen>
 
   @override
   Widget build(BuildContext context) {
+    final salesmenCount = ref.watch(salesmanListProvider).value?.length;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Salesman Management'),
+        title: Row(children: [
+          const Text('Salesman Management'),
+          if (salesmenCount != null && salesmenCount > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('$salesmenCount',
+                  style: const TextStyle(
+                      color: Color(0xFF2E7D32), fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ]),
         actions: [
           IconButton(
             icon: const Icon(Icons.home_outlined),
@@ -191,6 +207,27 @@ class _SalesmanTile extends ConsumerWidget {
     final isActive = salesman['is_active'] == 1;
     final pendingCount = salesman['pending_count'] as int? ?? 0;
     final unsettledTotal = (salesman['unsettled_total'] as num? ?? 0).toDouble();
+    final lastLoginRaw = salesman['last_login_at'] as String?;
+    final lastActiveRaw = salesman['last_active_at'] as String?;
+
+    String timeAgo(String raw) {
+      try {
+        final dt = DateTime.parse(raw.replaceFirst(' ', 'T'));
+        final diff = DateTime.now().difference(dt);
+        if (diff.inMinutes < 1) return 'Just now';
+        if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+        if (diff.inHours < 24) return '${diff.inHours}h ago';
+        if (diff.inDays < 7) return '${diff.inDays}d ago';
+        return '${diff.inDays}d ago';
+      } catch (_) { return ''; }
+    }
+
+    final lastLogin = lastLoginRaw != null
+        ? '${lastLoginRaw.substring(0, 16)} (${timeAgo(lastLoginRaw)})'
+        : 'Never';
+    final lastActive = lastActiveRaw != null
+        ? '${lastActiveRaw.substring(0, 16)} (${timeAgo(lastActiveRaw)})'
+        : 'Never';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -207,6 +244,9 @@ class _SalesmanTile extends ConsumerWidget {
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               Text('+91 $phone', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+              const SizedBox(height: 2),
+              Text('Last login: $lastLogin', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              Text('Last active: $lastActive', style: const TextStyle(fontSize: 11, color: Colors.grey)),
               if (pendingCount > 0 || unsettledTotal > 0)
                 Text('$pendingCount pending  •  ₹${unsettledTotal.toStringAsFixed(0)} unsettled',
                     style: TextStyle(fontSize: 11, color: unsettledTotal > 0 ? Colors.orange : Colors.grey)),
@@ -232,6 +272,37 @@ class _SalesmanTile extends ConsumerWidget {
               icon: const Icon(Icons.lock_reset, size: 16),
               label: const Text('Reset Password'),
               onPressed: () => _showResetPasswordDialog(context, ref, id, name),
+            ),
+            TextButton.icon(
+              icon: Icon(Icons.logout, size: 16, color: Colors.red.shade400),
+              label: Text('Force Logout', style: TextStyle(color: Colors.red.shade400)),
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Force Logout?'),
+                    content: Text('This will immediately log out $name. They will need to log in again.'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                        child: const Text('Force Logout'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true || !context.mounted) return;
+                try {
+                  await ref.read(dioProvider).post(Endpoints.adminSalesmanForceLogout(id));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('$name logged out'),
+                      backgroundColor: Colors.orange,
+                    ));
+                  }
+                } catch (_) {}
+              },
             ),
           ]),
         ]),

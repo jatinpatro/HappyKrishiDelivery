@@ -372,7 +372,7 @@ function listUsers(req, res) {
                 : 'u.name';
 
   const users = db.prepare(`
-    SELECT u.id, u.name, u.phone, u.email, u.wallet_balance, u.is_active, u.created_at,
+    SELECT u.id, u.name, u.phone, u.email, u.wallet_balance, u.is_active, u.created_at, u.last_login_at, u.last_active_at,
            u.tier_id, ct.name as tier_name, ct.color as tier_color,
            ct.max_wallet_negative_limit as tier_neg_limit,
            ct.cashback_multiplier as tier_cashback_multiplier,
@@ -405,6 +405,9 @@ function updateConfig(req, res) {
 
 function listTopupRequests(req, res) {
   const { status, date_from, date_to, approved_by, search, collector_name, settlement_status, credited_by_role } = req.query;
+  const page  = parseInt(req.query.page  || '1');
+  const limit = parseInt(req.query.limit || '50');
+  const offset = (page - 1) * limit;
   const conditions = [];
   const params = [];
   if (status && status !== 'all') { conditions.push("tr.status = ?"); params.push(status); }
@@ -446,8 +449,16 @@ function listTopupRequests(req, res) {
     LEFT JOIN salesman_settlements ss ON ss.id = tr.settlement_id
     ${where}
     ORDER BY tr.created_at DESC
-    LIMIT 200
+    LIMIT ${limit} OFFSET ${offset}
   `).all(...params);
+
+  const totalRow = db.prepare(`
+    SELECT COUNT(*) as c FROM topup_requests tr
+    JOIN users u ON u.id = tr.user_id
+    LEFT JOIN users s ON s.id = CAST(tr.collected_by AS INTEGER)
+    ${where}
+  `).get(...params);
+  const total = totalRow.c;
 
   // Summary stats
   const summary = db.prepare(`
@@ -472,6 +483,9 @@ function listTopupRequests(req, res) {
 
   res.json({
     requests,
+    total,
+    page,
+    limit,
     summary,
     raised_settlements: cashRaisedSettlements.filter(s => !s.settled_by),
     settlements: cashRaisedSettlements.filter(s => !!s.settled_by),
@@ -480,6 +494,9 @@ function listTopupRequests(req, res) {
 
 function listCreditAdvances(req, res) {
   const { date_from, date_to, credited_by_role, search } = req.query;
+  const page  = parseInt(req.query.page  || '1');
+  const limit = parseInt(req.query.limit || '50');
+  const offset = (page - 1) * limit;
   const conditions = ["tr.payment_method = 'credit_advance'"];
   const params = [];
 
@@ -506,8 +523,15 @@ function listCreditAdvances(req, res) {
     LEFT JOIN salesman_settlements ss ON ss.id = tr.settlement_id
     ${where}
     ORDER BY tr.created_at DESC
-    LIMIT 300
+    LIMIT ${limit} OFFSET ${offset}
   `).all(...params);
+
+  const totalRow = db.prepare(`
+    SELECT COUNT(*) as c FROM topup_requests tr
+    JOIN users u ON u.id = tr.user_id
+    ${where}
+  `).get(...params);
+  const total = totalRow.c;
 
   // Settlement records for raised credit advance settlements (pending + done)
   const raisedSettlements = db.prepare(`
@@ -522,6 +546,9 @@ function listCreditAdvances(req, res) {
 
   res.json({
     requests,
+    total,
+    page,
+    limit,
     raised_settlements: raisedSettlements.filter(s => !s.settled_by),
     settlements: raisedSettlements.filter(s => !!s.settled_by),
   });

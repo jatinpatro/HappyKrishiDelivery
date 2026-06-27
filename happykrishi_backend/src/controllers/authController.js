@@ -5,9 +5,11 @@ const otpService = require('../services/otpService');
 const notificationService = require('../services/notificationService');
 
 function issueToken(user) {
-  return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '30d',
-  });
+  return jwt.sign(
+    { id: user.id, role: user.role, tv: user.token_version ?? 0 },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '30d' }
+  );
 }
 
 function getConfig(key) {
@@ -79,16 +81,65 @@ function verifyOtp(req, res) {
     const result = db.prepare('INSERT INTO users (name, phone, role, tier_id) VALUES (?,?,?,?)')
       .run('User', phone, 'customer', db.prepare("SELECT id FROM customer_tiers WHERE name='Normal' LIMIT 1").get()?.id ?? null);
     user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+    // Flush WAL immediately so walletService (separate connection) can see the new user
+    db.pragma('wal_checkpoint(PASSIVE)');
   }
 
+  // ── Auto-credit referral if this phone was invited ───────────────────────────
+  // Runs on NEW signup AND on every subsequent login until credited — self-healing
+  // in case the server was down during first signup.
+  try {
+    const alreadyHasReferral = db.prepare('SELECT id FROM referral_coupons WHERE used_by_user_id = ?').get(user.id);
+    if (!alreadyHasReferral) {
+      const coupon = db.prepare(`
+        SELECT rc.*, u.name as owner_name
+        FROM referral_coupons rc
+        JOIN users u ON u.id = rc.owner_user_id
+        WHERE rc.invited_phone = ? AND rc.used_by_user_id IS NULL AND (rc.is_generic = 0 OR rc.is_generic IS NULL)
+        ORDER BY rc.created_at DESC LIMIT 1
+      `).get(phone);
+      if (coupon) {
+        const signupCredit = parseFloat(db.prepare("SELECT value FROM app_config WHERE key='referral_signup_credit'").get()?.value || '0');
+        db.prepare(`
+          UPDATE referral_coupons
+          SET used_by_user_id=?, used_at=datetime('now'), signup_credit_amount=?
+          WHERE id=?
+        `).run(user.id, signupCredit > 0 ? signupCredit : null, coupon.id);
+        if (signupCredit > 0) {
+          const walletService = require('../services/walletService');
+          const notificationService = require('../services/notificationService');
+          walletService.credit(user.id, signupCredit, 'credit', 'referral_signup', coupon.id,
+            `Referral sign-up bonus from ${coupon.owner_name}'s invite`);
+          notificationService.sendToUser(user.id, 'Welcome Bonus! 🎉',
+            `₹${signupCredit} added to your wallet as a welcome gift from ${coupon.owner_name}.`);
+          notificationService.sendToUser(coupon.owner_user_id, 'Your Friend Joined! 🎉',
+            `A new customer just signed up using your invite code. You'll earn ₹${parseFloat(db.prepare("SELECT value FROM app_config WHERE key='referral_first_order_bonus'").get()?.value || '0')} when they place their first order.`);
+          // Refresh user to include updated wallet balance
+          user = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+        }
+      }
+    }
+  } catch (e) { console.error('[Referral auto-credit]', e); }
+  // ────────────────────────────────────────────────────────────────────────────
+
+  db.prepare("UPDATE users SET last_login_at=datetime('now', '+5 hours', '+30 minutes') WHERE id=?").run(user.id);
   const token = issueToken(user);
+
+  // Check if referral was auto-credited on this signup
+  const referralCredited = isNew && (() => {
+    const c = db.prepare(`SELECT signup_credit_amount FROM referral_coupons
+      WHERE used_by_user_id = ? AND signup_credit_amount IS NOT NULL
+      ORDER BY used_at DESC LIMIT 1`).get(user.id);
+    return c ? (c.signup_credit_amount) : null;
+  })();
+
   res.json({
     token,
     user: safeUser(user),
     is_new: isNew,
     needs_password: !user.password_set,
-    // Let Flutter route correctly without checking role separately
     role: user.role,
+    referral_credited: referralCredited,
   });
 }
 
@@ -120,6 +171,7 @@ function phoneLogin(req, res) {
     return res.status(401).json({ error: 'Incorrect password' });
   }
 
+  db.prepare("UPDATE users SET last_login_at=datetime('now', '+5 hours', '+30 minutes') WHERE id=?").run(user.id);
   const token = issueToken(user);
   res.json({ token, user: safeUser(user) });
 }
@@ -317,6 +369,7 @@ function emailLogin(req, res) {
   if (!bcrypt.compareSync(password, user.password_hash)) return res.status(401).json({ error: 'Incorrect password' });
   if (!user.is_active) return res.status(401).json({ error: 'Account inactive' });
 
+  db.prepare("UPDATE users SET last_login_at=datetime('now', '+5 hours', '+30 minutes') WHERE id=?").run(user.id);
   const token = issueToken(user);
   res.json({ token, user: safeUser(user) });
 }
@@ -328,10 +381,58 @@ function saveFcmToken(req, res) {
   res.json({ message: 'FCM token saved' });
 }
 
+// ── Email verification (step 1: send OTP to email) ────────────────────────────
+async function sendEmailVerification(req, res) {
+  const { email } = req.body;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return res.status(400).json({ error: 'Valid email address is required' });
+  }
+  const normalized = email.trim().toLowerCase();
+
+  // Check not already taken by another account
+  const conflict = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(normalized, req.user.id);
+  if (conflict) return res.status(409).json({ error: 'This email is already linked to another account' });
+
+  // Rate-limit: 1 per 60s — reuse otp_codes keyed on "email:{address}"
+  const key = `email:${normalized}`;
+  const recent = db.prepare('SELECT created_at FROM otp_codes WHERE phone = ? ORDER BY id DESC LIMIT 1').get(key);
+  if (recent) {
+    const secondsAgo = (Date.now() - new Date(recent.created_at + ' UTC').getTime()) / 1000;
+    if (secondsAgo < 60) {
+      return res.status(429).json({ error: `Please wait ${Math.ceil(60 - secondsAgo)}s before requesting again` });
+    }
+  }
+
+  const code = otpService.generateOtp();
+  otpService.saveOtp(key, code);
+  await otpService.sendEmailOtp(normalized, code, req.user.name || 'Customer');
+  res.json({ message: `Verification code sent to ${normalized}` });
+}
+
+// ── Email verification (step 2: confirm OTP and save email) ──────────────────
+function verifyEmailOtp(req, res) {
+  const { email, code } = req.body;
+  if (!email || !code) return res.status(400).json({ error: 'email and code are required' });
+
+  const normalized = email.trim().toLowerCase();
+  const key = `email:${normalized}`;
+  const valid = otpService.verifyOtp(key, code);
+  if (!valid) return res.status(400).json({ error: 'Invalid or expired verification code' });
+
+  // Check not taken by another account (race-condition guard)
+  const conflict = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(normalized, req.user.id);
+  if (conflict) return res.status(409).json({ error: 'This email is already linked to another account' });
+
+  db.prepare('UPDATE users SET email=?, email_verified=1 WHERE id=?').run(normalized, req.user.id);
+  const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  res.json({ message: 'Email verified and saved', user: safeUser(updated) });
+}
+
 module.exports = {
   sendOtp, verifyOtp, phoneLogin, setPassword,
   requestChangePasswordOtp, changePassword,
   saveFcmToken,
   register, adminLogin, getMe, updateProfile,
   emailSignup, emailLogin,
+  sendEmailVerification, verifyEmailOtp,
 };

@@ -40,6 +40,8 @@ const db = new Database(dbPath);
 // Enable WAL mode and foreign keys
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+// Checkpoint any pending WAL data from previous sessions so all data is visible
+try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (_) {}
 
 // better-sqlite3 natively provides:
 //   db.prepare(sql).run(...params)  → { lastInsertRowid, changes }
@@ -268,6 +270,18 @@ function runMigrations() {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS referral_coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id),
+      used_by_user_id INTEGER REFERENCES users(id),
+      used_at TEXT,
+      signup_credit_amount REAL,
+      bonus_credit_amount REAL,
+      bonus_credited_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS customer_tiers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -277,6 +291,18 @@ function runMigrations() {
       cashback_multiplier REAL NOT NULL DEFAULT 1.0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS pincode_delivery_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pincode TEXT NOT NULL,
+      min_subtotal REAL NOT NULL DEFAULT 0,
+      max_subtotal REAL,
+      delivery_charge REAL,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      blocked_message TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -342,6 +368,10 @@ function runMigrations() {
     ic.run('cash_payment_address', 'Visit our farm or pay to our agent');
     ic.run('salesmen_list', 'Tarini,Abhi,Jatin,Sunil');
     ic.run('default_salesman_id', ''); // user ID of default salesman — empty = none
+    ic.run('referral_enabled', '1');
+    ic.run('referral_signup_credit', '50');
+    ic.run('referral_first_order_bonus', '100');
+    ic.run('require_delivery_code', '1');
   }
 
   // Seed default customer tiers (only if empty)
@@ -383,6 +413,12 @@ try { db.exec('ALTER TABLE topup_requests ADD COLUMN settled_at TEXT'); } catch 
 try { db.exec('ALTER TABLE topup_requests ADD COLUMN updated_at TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE topup_requests ADD COLUMN collected_by TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE topup_requests ADD COLUMN resolved_at TEXT'); } catch (_) {}
+try { db.exec("ALTER TABLE topup_requests ADD COLUMN payment_received INTEGER NOT NULL DEFAULT 1"); } catch (_) {}
+try { db.exec('ALTER TABLE topup_requests ADD COLUMN payment_received_at TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE topup_requests ADD COLUMN credited_by_role TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE topup_requests ADD COLUMN credited_by_id INTEGER'); } catch (_) {}
+try { db.exec("ALTER TABLE topup_requests ADD COLUMN paid_by_role TEXT"); } catch (_) {}
+try { db.exec("ALTER TABLE salesman_settlements ADD COLUMN settlement_type TEXT NOT NULL DEFAULT 'cash'"); } catch (_) {}
 try { db.exec('ALTER TABLE products ADD COLUMN min_qty REAL NOT NULL DEFAULT 0.5'); } catch (_) {}
 try { db.exec('ALTER TABLE products ADD COLUMN qty_step REAL NOT NULL DEFAULT 0.5'); } catch (_) {}
 try { db.exec('ALTER TABLE products ADD COLUMN description TEXT'); } catch (_) {}
@@ -402,6 +438,16 @@ try { db.exec('ALTER TABLE deliveries ADD COLUMN updated_at TEXT'); } catch (_) 
 try { db.exec('ALTER TABLE users ADD COLUMN tier_id INTEGER REFERENCES customer_tiers(id)'); } catch (_) {}
 try { db.exec("ALTER TABLE customer_tiers ADD COLUMN color TEXT NOT NULL DEFAULT '#607D8B'"); } catch (_) {}
 try { db.exec("ALTER TABLE customer_tiers ADD COLUMN min_wallet_balance REAL NOT NULL DEFAULT 0"); } catch (_) {}
+try { db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+try { db.exec('ALTER TABLE users ADD COLUMN referral_code TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+try { db.exec('ALTER TABLE topup_requests ADD COLUMN approved_by_id INTEGER'); } catch (_) {}
+try { db.exec('ALTER TABLE topup_requests ADD COLUMN approved_by_role TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE deliveries ADD COLUMN delivery_code TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE deliveries ADD COLUMN customer_confirmed_at TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE deliveries ADD COLUMN customer_lat REAL'); } catch (_) {}
+try { db.exec('ALTER TABLE deliveries ADD COLUMN customer_lng REAL'); } catch (_) {}
+try { db.exec('ALTER TABLE referral_coupons ADD COLUMN invited_phone TEXT'); } catch (_) {}
 
 // One-time: migrate existing tiers to have min_wallet_balance + update Normal limit + add Restricted
 try {
@@ -513,5 +559,52 @@ try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email
 
 // Add updated_at to salesman_settlements for acknowledgement timestamp
 try { db.exec('ALTER TABLE salesman_settlements ADD COLUMN updated_at TEXT'); } catch (_) {}
+
+// Generic referral codes — reusable admin-created codes with custom cashback
+try { db.exec('ALTER TABLE referral_coupons ADD COLUMN is_generic INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+try { db.exec('ALTER TABLE referral_coupons ADD COLUMN max_uses INTEGER'); } catch (_) {}
+try { db.exec('ALTER TABLE referral_coupons ADD COLUMN use_count INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+try { db.exec('ALTER TABLE referral_coupons ADD COLUMN custom_signup_credit REAL'); } catch (_) {}
+try { db.exec('ALTER TABLE referral_coupons ADD COLUMN label TEXT'); } catch (_) {}
+
+// Promo code rule extensions
+try { db.exec("ALTER TABLE promo_codes ADD COLUMN first_order_only INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
+try { db.exec("ALTER TABLE promo_codes ADD COLUMN allowed_phones TEXT"); } catch (_) {}      // JSON array of phone strings
+try { db.exec("ALTER TABLE promo_codes ADD COLUMN allowed_product_ids TEXT"); } catch (_) {} // JSON array of product ids
+try { db.exec("ALTER TABLE promo_codes ADD COLUMN allowed_category_ids TEXT"); } catch (_) {}// JSON array of category ids
+try { db.exec("ALTER TABLE promo_codes ADD COLUMN allowed_tier_ids TEXT"); } catch (_) {}    // JSON array of tier ids
+try { db.exec("ALTER TABLE promo_codes ADD COLUMN min_product_amount REAL"); } catch (_) {}  // min spend on restricted products/categories
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS promo_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE NOT NULL,
+    label TEXT,
+    discount_type TEXT NOT NULL DEFAULT 'flat' CHECK(discount_type IN ('flat','percent')),
+    discount_value REAL NOT NULL,
+    min_order_amount REAL NOT NULL DEFAULT 0,
+    max_discount_amount REAL,
+    max_uses INTEGER,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    per_user_limit INTEGER NOT NULL DEFAULT 1,
+    valid_from TEXT,
+    valid_until TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`); } catch (_) {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS promo_code_uses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    promo_code_id INTEGER NOT NULL REFERENCES promo_codes(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    order_id INTEGER REFERENCES orders(id),
+    discount_amount REAL NOT NULL,
+    used_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`); } catch (_) {}
+
+try { db.exec('ALTER TABLE users ADD COLUMN last_login_at TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE users ADD COLUMN last_active_at TEXT'); } catch (_) {}
 
 module.exports = db;

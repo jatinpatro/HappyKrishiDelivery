@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:go_router/go_router.dart';
@@ -7,21 +8,23 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import 'admin_tiers_screen.dart' show tierColor;
 import '../../core/widgets/active_filter.dart';
-import '../../core/widgets/filter_chip_bar.dart';
+import '../../core/widgets/filter_form.dart';
 import '../../core/utils/error_handler.dart';
 
 final adminCustomersProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
         (ref, key) async {
-  // key = "search|wallet|sort|is_active"
+  // key = "search|wallet|sort|is_active|page"
   final parts  = key.split('|');
   final search = parts[0];
   final wallet = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
   final sort   = parts.length > 2 && parts[2].isNotEmpty ? parts[2] : null;
   final active = parts.length > 3 && parts[3].isNotEmpty ? parts[3] : null;
+  final page   = parts.length > 4 && parts[4].isNotEmpty ? int.tryParse(parts[4]) ?? 1 : 1;
   final dio = ref.read(dioProvider);
   final res = await dio.get(Endpoints.adminUsers, queryParameters: {
     'limit': 50,
+    'page': page,
     'search': search,
     if (wallet != null) 'wallet': wallet,
     if (sort != null)   'sort':   sort,
@@ -40,20 +43,71 @@ class AdminCustomersScreen extends ConsumerStatefulWidget {
 class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
   final _searchCtrl = TextEditingController();
   String _search       = '';
-  String _walletFilter = '';   // negative | zero | positive | low | ''
-  String _sortFilter   = 'name'; // name | recent | wallet_asc | wallet_desc
-  String _activeFilter = '';   // '' | 0 | 1
-  List<ActiveFilter> _chipFilters = [];
+  String _walletFilter = '';
+  String _sortFilter   = 'name';
+  String _activeFilter = '';
+  FilterFormState _filter = FilterFormState.empty;
+  Timer? _searchDebounce;
 
-  static const _filterDefs = [
-    FilterDefinition(field: 'tier_name', label: 'Tier', type: FilterType.text),
-    FilterDefinition(field: 'wallet_balance', label: 'Wallet', type: FilterType.number),
-  ];
+  List<Map<String, dynamic>> _allCustomers = [];
+  int _page = 1;
+  int _total = 0;
+  bool _loading = false;
+  bool _loadingMore = false;
 
-  String get _providerKey => '$_search|$_walletFilter|$_sortFilter|$_activeFilter';
+  String get _baseKey => '$_search|$_walletFilter|$_sortFilter|$_activeFilter';
+  String get _providerKey => '$_baseKey|$_page';
+
+  bool get _hasMore => _allCustomers.length < _total;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load(reset: true));
+  }
+
+  Future<void> _load({bool reset = false}) async {
+    if (reset) {
+      setState(() { _allCustomers = []; _page = 1; _total = 0; _loading = true; });
+    } else {
+      if (_loadingMore) return;
+      setState(() => _loadingMore = true);
+    }
+    try {
+      final nextPage = reset ? 1 : _page + 1;
+      final data = await ref.read(adminCustomersProvider('$_baseKey|$nextPage').future);
+      final users = List<Map<String, dynamic>>.from(data['users'] as List);
+      final total = (data['total'] as num?)?.toInt() ?? users.length;
+      setState(() {
+        if (reset) {
+          _allCustomers = users;
+          _page = 1;
+        } else {
+          _allCustomers = [..._allCustomers, ...users];
+          _page = nextPage;
+        }
+        _total = total;
+        _loading = false;
+        _loadingMore = false;
+      });
+    } catch (e) {
+      setState(() { _loading = false; _loadingMore = false; });
+    }
+  }
+
+  static const _customerFilterConfig = FilterFormConfig(
+    title: 'Filter Customers',
+    showDateRange: false,
+    showTextSearch: false,
+    dynamicFields: [
+      FilterDefinition(field: 'tier_name',      label: 'Tier',   type: FilterType.text,   serverSide: false),
+      FilterDefinition(field: 'wallet_balance', label: 'Wallet', type: FilterType.number, serverSide: false),
+    ],
+  );
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -75,16 +129,39 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final customers = ref.watch(adminCustomersProvider(_providerKey));
+    final localFilters = _filter.toLocalFilters(_customerFilterConfig);
+    final filtered = localFilters.isEmpty
+        ? _allCustomers
+        : _allCustomers.where((c) => matchesAllFilters(c, localFilters)).toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Customers'),
+        title: Row(children: [
+          const Text('Customers'),
+          if (_total > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('$_total',
+                  style: const TextStyle(
+                      color: Color(0xFF2E7D32), fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ]),
         actions: [
           IconButton(
             icon: const Icon(Icons.home_outlined),
             tooltip: 'Home',
             onPressed: () => context.go('/admin/dashboard'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => _load(reset: true),
           ),
         ],
         bottom: PreferredSize(
@@ -93,7 +170,11 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
             child: TextField(
               controller: _searchCtrl,
-              onChanged: (v) => setState(() => _search = v.trim()),
+              onChanged: (v) {
+                setState(() => _search = v.trim());
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 400), () => _load(reset: true));
+              },
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 hintText: 'Search name or phone…',
@@ -105,6 +186,7 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _search = '');
+                          _load(reset: true);
                         })
                     : null,
                 filled: true,
@@ -126,7 +208,6 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
           color: Colors.white,
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // Wallet balance chips
             Row(children: [
               const Text('Wallet:',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
@@ -142,7 +223,7 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
                         label: o.label,
                         selected: _walletFilter == o.key,
                         color: o.color,
-                        onTap: () => setState(() => _walletFilter = o.key),
+                        onTap: () { setState(() => _walletFilter = o.key); _load(reset: true); },
                       ),
                     )).toList(),
                   ),
@@ -150,7 +231,6 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
               ),
             ]),
             const SizedBox(height: 8),
-            // Sort + Active toggle row
             Row(children: [
               const Text('Sort:',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
@@ -166,14 +246,13 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
                         label: o.label,
                         selected: _sortFilter == o.key,
                         color: const Color(0xFF1565C0),
-                        onTap: () => setState(() => _sortFilter = o.key),
+                        onTap: () { setState(() => _sortFilter = o.key); _load(reset: true); },
                       ),
                     )).toList(),
                   ),
                 ),
               ),
               const SizedBox(width: 6),
-              // Active toggle
               _FilterChip(
                 label: _activeFilter == '1'
                     ? 'Active'
@@ -182,18 +261,21 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
                         : 'All',
                 selected: _activeFilter.isNotEmpty,
                 color: _activeFilter == '0' ? Colors.red : const Color(0xFF2E7D32),
-                onTap: () => setState(() {
-                  if (_activeFilter == '') { _activeFilter = '1'; }
-                  else if (_activeFilter == '1') { _activeFilter = '0'; }
-                  else { _activeFilter = ''; }
-                }),
+                onTap: () {
+                  setState(() {
+                    if (_activeFilter == '') { _activeFilter = '1'; }
+                    else if (_activeFilter == '1') { _activeFilter = '0'; }
+                    else { _activeFilter = ''; }
+                  });
+                  _load(reset: true);
+                },
               ),
             ]),
-            FilterChipBar(
-              availableFilters: _filterDefs,
-              activeFilters: _chipFilters,
-              onAdd: (f) => setState(() => _chipFilters = [..._chipFilters.where((e) => e.field != f.field), f]),
-              onRemove: (f) => setState(() => _chipFilters = _chipFilters.where((e) => e.field != f.field).toList()),
+            FilterBar(
+              config: _customerFilterConfig,
+              state: _filter,
+              onChanged: (f) { setState(() => _filter = f); _load(reset: true); },
+              onLoad: () => _load(reset: true),
             ),
           ]),
         ),
@@ -201,53 +283,59 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
 
         // ── Customer list ───────────────────────────────────────────────────
         Expanded(
-          child: customers.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) { logError('admin-customers', e); return Center(child: Text(friendlyError(e))); },
-            data: (data) {
-              final rawList = (data['users'] as List? ?? [])
-                  .cast<Map<String, dynamic>>();
-              final list = _chipFilters.isEmpty ? rawList : rawList.where((c) => matchesAllFilters(c, _chipFilters)).toList();
-              if (list.isEmpty) {
-                return Center(
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Icon(Icons.person_search_outlined,
-                        size: 64, color: Colors.grey.shade300),
-                    const SizedBox(height: 12),
-                    Text(
-                      _search.isNotEmpty
-                          ? 'No customers found for "$_search"'
-                          : 'No customers yet',
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                    if (_walletFilter.isNotEmpty || _activeFilter.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () => setState(() {
-                          _walletFilter = '';
-                          _activeFilter = '';
-                        }),
-                        child: const Text('Clear filters'),
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : filtered.isEmpty
+                  ? Center(
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(Icons.person_search_outlined,
+                            size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 12),
+                        Text(
+                          _search.isNotEmpty
+                              ? 'No customers found for "$_search"'
+                              : 'No customers yet',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                        if (_walletFilter.isNotEmpty || _activeFilter.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: () { setState(() { _walletFilter = ''; _activeFilter = ''; }); _load(reset: true); },
+                            child: const Text('Clear filters'),
+                          ),
+                        ],
+                      ]),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () => _load(reset: true),
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: filtered.length + 1,
+                        itemBuilder: (_, i) {
+                          if (i < filtered.length) {
+                            return _CustomerCard(
+                              customer: filtered[i],
+                              onChanged: () => _load(reset: true),
+                            );
+                          }
+                          if (_hasMore) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: _loadingMore
+                                    ? const CircularProgressIndicator()
+                                    : ElevatedButton.icon(
+                                        icon: const Icon(Icons.expand_more),
+                                        label: Text('Load More (${_allCustomers.length} of $_total)'),
+                                        onPressed: () => _load(),
+                                      ),
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
                       ),
-                    ],
-                  ]),
-                );
-              }
-              return RefreshIndicator(
-                onRefresh: () async =>
-                    ref.invalidate(adminCustomersProvider(_providerKey)),
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: list.length,
-                  itemBuilder: (_, i) => _CustomerCard(
-                    customer: list[i],
-                    onChanged: () =>
-                        ref.invalidate(adminCustomersProvider(_providerKey)),
-                  ),
-                ),
-              );
-            },
-          ),
+                    ),
         ),
       ]),
       floatingActionButton: FloatingActionButton.extended(
@@ -311,6 +399,18 @@ class _CustomerCard extends ConsumerStatefulWidget {
 
 class _CustomerCardState extends ConsumerState<_CustomerCard> {
   bool _toggling = false;
+
+  String _timeAgo(String raw) {
+    try {
+      final dt = DateTime.parse(raw.replaceFirst(' ', 'T'));
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 1) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return '${diff.inDays}d ago';
+    } catch (_) { return ''; }
+  }
 
   Future<void> _viewWalletHistory() async {
     final c = widget.customer;
@@ -376,6 +476,94 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
   void _email() {
     final email = widget.customer['email'] as String?;
     if (email != null && email.isNotEmpty) launchUrl(Uri.parse('mailto:$email'));
+  }
+
+  Future<void> _creditTopup() async {
+    final id = widget.customer['id'] as int;
+    final name = widget.customer['name'] as String;
+    final amtCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Credit Advance for $name'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Give wallet credit before payment. Customer pays later.', style: TextStyle(fontSize: 13, color: Colors.grey)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: amtCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Amount (₹) *', prefixText: '₹ ', border: OutlineInputBorder(), isDense: true),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: noteCtrl,
+            decoration: const InputDecoration(labelText: 'Note (optional)', border: OutlineInputBorder(), isDense: true),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            child: const Text('Give Credit'),
+          ),
+        ],
+      ),
+    );
+    if (result != true || !mounted) return;
+    final amount = double.tryParse(amtCtrl.text.trim());
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid amount')));
+      return;
+    }
+    try {
+      await ref.read(dioProvider).post(Endpoints.adminCreditAdvance, data: {
+        'user_id': id,
+        'amount': amount,
+        if (noteCtrl.text.trim().isNotEmpty) 'note': noteCtrl.text.trim(),
+      });
+      widget.onChanged();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('₹${amount.toStringAsFixed(0)} credit advance given to $name'),
+          backgroundColor: const Color(0xFF2E7D32),
+        ));
+      }
+    } catch (e, st) {
+      logError('admin-credit-topup', e, st);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    }
+  }
+
+  Future<void> _forceLogout() async {
+    final id = widget.customer['id'] as int;
+    final name = widget.customer['name'] as String;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Force Logout?'),
+        content: Text('This will immediately log out $name. They will need to log in again.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Force Logout'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(dioProvider).post(Endpoints.adminCustomerForceLogout(id));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$name logged out'),
+          backgroundColor: Colors.orange,
+        ));
+      }
+    } catch (_) {}
   }
 
   Future<void> _toggleActive() async {
@@ -600,6 +788,14 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
     final isActive = (c['is_active'] as int) == 1;
     final joined = (c['created_at'] as String).substring(0, 10);
     final hasApp = (c['has_app'] as int? ?? 0) == 1;
+    final lastLoginRaw = c['last_login_at'] as String?;
+    final lastActiveRaw = c['last_active_at'] as String?;
+    final lastLogin = lastLoginRaw != null
+        ? '${lastLoginRaw.substring(0, 16)} (${_timeAgo(lastLoginRaw)})'
+        : 'Never';
+    final lastActive = lastActiveRaw != null
+        ? '${lastActiveRaw.substring(0, 16)} (${_timeAgo(lastActiveRaw)})'
+        : 'Never';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -704,6 +900,20 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
                     style:
                         const TextStyle(fontSize: 11, color: Colors.grey)),
               ]),
+              const SizedBox(height: 3),
+              Row(children: [
+                const Icon(Icons.login_outlined, size: 12, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text('Last login: $lastLogin',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ]),
+              const SizedBox(height: 3),
+              Row(children: [
+                const Icon(Icons.access_time, size: 12, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text('Last active: $lastActive',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              ]),
               if (c['tier_name'] != null) ...[
                 const SizedBox(height: 5),
                 Builder(builder: (_) {
@@ -767,6 +977,19 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
                   color: Colors.orange, size: 20),
               tooltip: 'Reset Password',
               onPressed: _resetPassword,
+            ),
+            // Credit advance
+            IconButton(
+              icon: const Icon(Icons.add_card_outlined,
+                  color: Color(0xFF2E7D32), size: 20),
+              tooltip: 'Credit Advance',
+              onPressed: _creditTopup,
+            ),
+            // Force logout
+            IconButton(
+              icon: Icon(Icons.logout, color: Colors.red.shade400, size: 20),
+              tooltip: 'Force Logout',
+              onPressed: _forceLogout,
             ),
             // Toggle active
             _toggling

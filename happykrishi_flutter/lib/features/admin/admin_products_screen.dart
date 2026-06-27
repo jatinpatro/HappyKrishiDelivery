@@ -7,6 +7,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/services/pdf_service.dart';
 
 final adminProductsProvider =
     FutureProvider.autoDispose.family<List<Product>, String>((ref, key) async {
@@ -61,10 +62,40 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
       appBar: AppBar(
         title: const Text('Products'),
         actions: [
+          // PDF export — exports currently filtered list
+          if (products.value != null && products.value!.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              tooltip: 'Export PDF',
+              onPressed: () {
+                final filterLabel = [
+                  if (_search.isNotEmpty) '"$_search"',
+                  if (_categoryFilter != null)
+                    categories.value?.firstWhere((c) => c.id == _categoryFilter,
+                        orElse: () => Category(id: 0, name: 'Category')).name ?? '',
+                  if (_stockFilter != null) _stockFilter!,
+                ].join(', ');
+                PdfService.shareAdminProductsReport(
+                  context: context,
+                  products: products.value!,
+                  title: filterLabel.isNotEmpty
+                      ? 'Products — $filterLabel'
+                      : 'All Products',
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.home_outlined),
             tooltip: 'Home',
             onPressed: () => context.go('/admin/dashboard'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () {
+              ref.invalidate(adminProductsProvider);
+              ref.invalidate(categoriesAdminProvider);
+            },
           ),
           IconButton(
             icon: const Icon(Icons.category_outlined),
@@ -102,28 +133,25 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            // Stock filter chips — row 1
-            Row(children: [
+            // Stock filter chips — wrapping
+            Wrap(spacing: 6, runSpacing: 6, children: [
               _FilterChip(
                 label: 'All',
                 selected: _stockFilter == null && _categoryFilter == null,
                 onTap: () => setState(() { _stockFilter = null; _categoryFilter = null; }),
               ),
-              const SizedBox(width: 6),
               _FilterChip(
                 label: '⚠️ Low stock',
                 selected: _stockFilter == 'low',
                 color: Colors.orange,
                 onTap: () => setState(() => _stockFilter = _stockFilter == 'low' ? null : 'low'),
               ),
-              const SizedBox(width: 6),
               _FilterChip(
                 label: '❌ Out of stock',
                 selected: _stockFilter == 'out',
                 color: Colors.red,
                 onTap: () => setState(() => _stockFilter = _stockFilter == 'out' ? null : 'out'),
               ),
-              const SizedBox(width: 6),
               _FilterChip(
                 label: '✅ In stock',
                 selected: _stockFilter == 'ok',
@@ -131,23 +159,19 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                 onTap: () => setState(() => _stockFilter = _stockFilter == 'ok' ? null : 'ok'),
               ),
             ]),
-            // Category chips — Wrap row 2
+            // Category chips — wrapping
             if (categories.value != null && categories.value!.isNotEmpty) ...[
               const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: categories.value!.map((c) => Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: _FilterChip(
-                      label: c.name,
-                      selected: _categoryFilter == c.id,
-                      color: const Color(0xFF2E7D32),
-                      onTap: () => setState(() =>
-                          _categoryFilter = _categoryFilter == c.id ? null : c.id),
-                    ),
-                  )).toList(),
-                ),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: categories.value!.map((c) => _FilterChip(
+                  label: c.name,
+                  selected: _categoryFilter == c.id,
+                  color: const Color(0xFF2E7D32),
+                  onTap: () => setState(() =>
+                      _categoryFilter = _categoryFilter == c.id ? null : c.id),
+                )).toList(),
               ),
             ],
             // Result count
@@ -217,53 +241,96 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                   itemCount: list.length,
                   itemBuilder: (_, i) {
                     final p = list[i];
+                    final isLow  = p.stockQty > 0 && p.stockQty <= p.lowStockThreshold;
+                    final isOut  = p.stockQty <= 0;
+                    final stockColor = isOut ? Colors.red : isLow ? Colors.orange : const Color(0xFF2E7D32);
+
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: _ProductImageAvatar(product: p,
-                            onUploaded: () => ref.invalidate(adminProductsProvider)),
-                        title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('₹${p.pricePerUnit}/${p.unit}  •  Stock: ${p.stockQty}'),
-                          if (p.categoryName != null)
-                            Text('Category: ${p.categoryName}',
-                                style: const TextStyle(color: Color(0xFF2E7D32), fontSize: 12)),
-                          if (p.isWeightAdjusted)
-                            const Text('⚖️ Weight adjusted at delivery',
-                                style: TextStyle(color: Colors.orange, fontSize: 12)),
-                          if (p.stockQty <= p.lowStockThreshold)
-                            Row(children: [
-                              const Icon(Icons.warning_amber_rounded, size: 13, color: Colors.red),
-                              const SizedBox(width: 3),
-                              Text(
-                                p.stockQty <= 0 ? 'Out of stock' : 'Low stock',
-                                style: const TextStyle(color: Colors.red, fontSize: 12,
-                                    fontWeight: FontWeight.w600),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: p.isActive ? Colors.transparent : Colors.grey.shade300,
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          // Row 1: image + name + price + active toggle
+                          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            _ProductImageAvatar(product: p,
+                                onUploaded: () => ref.invalidate(adminProductsProvider)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(p.name,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      color: p.isActive ? Colors.black87 : Colors.grey,
+                                    )),
+                                const SizedBox(height: 2),
+                                Text('₹${p.pricePerUnit.toStringAsFixed(0)} / ${p.unit}',
+                                    style: const TextStyle(fontSize: 13, color: Color(0xFF2E7D32),
+                                        fontWeight: FontWeight.w600)),
+                              ]),
+                            ),
+                            // Active toggle
+                            Column(children: [
+                              Switch(
+                                value: p.isActive,
+                                activeTrackColor: const Color(0xFF2E7D32),
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                onChanged: (v) async {
+                                  await ref.read(dioProvider).put(Endpoints.product(p.id),
+                                      data: {'is_active': v ? 1 : 0});
+                                  ref.invalidate(adminProductsProvider);
+                                },
                               ),
+                              Text(p.isActive ? 'Active' : 'Off',
+                                  style: TextStyle(fontSize: 9,
+                                      color: p.isActive ? const Color(0xFF2E7D32) : Colors.grey)),
                             ]),
-                        ]),
-                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Switch(
-                            value: p.isActive,
-                            activeThumbColor: const Color(0xFF2E7D32),
-                            onChanged: (v) async {
-                              final dio = ref.read(dioProvider);
-                              await dio.put(Endpoints.product(p.id),
-                                  data: {'is_active': v ? 1 : 0});
-                              ref.invalidate(adminProductsProvider);
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined),
-                            tooltip: 'Edit',
-                            onPressed: () =>
-                                _showProductForm(context, ref, categories.value ?? [], product: p),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.copy_outlined, size: 20),
-                            tooltip: 'Duplicate',
-                            onPressed: () => _duplicateProduct(context, ref, p, categories.value ?? []),
-                          ),
+                          ]),
+
+                          const SizedBox(height: 8),
+
+                          // Row 2: category + stock + weight badge
+                          Wrap(spacing: 6, runSpacing: 4, children: [
+                            if (p.categoryName != null)
+                              _InfoBadge(Icons.category_outlined, p.categoryName!,
+                                  const Color(0xFF2E7D32)),
+                            _InfoBadge(Icons.inventory_2_outlined,
+                                'Stock: ${p.stockQty.toStringAsFixed(1)} ${p.unit}',
+                                stockColor),
+                            if (isOut)
+                              _InfoBadge(Icons.block_outlined, 'Out of stock', Colors.red),
+                            if (isLow && !isOut)
+                              _InfoBadge(Icons.warning_amber_outlined, 'Low stock', Colors.orange),
+                            if (p.isWeightAdjusted)
+                              _InfoBadge(Icons.scale_outlined, 'Weight adjusted', Colors.indigo),
+                          ]),
+
+                          const SizedBox(height: 8),
+
+                          // Row 3: action buttons
+                          Row(children: [
+                            _ActionButton(
+                              icon: Icons.edit_outlined,
+                              label: 'Edit',
+                              color: Colors.blue.shade700,
+                              onTap: () => _showProductForm(context, ref,
+                                  categories.value ?? [], product: p),
+                            ),
+                            const SizedBox(width: 8),
+                            _ActionButton(
+                              icon: Icons.copy_outlined,
+                              label: 'Duplicate',
+                              color: Colors.purple.shade700,
+                              onTap: () => _duplicateProduct(context, ref, p,
+                                  categories.value ?? []),
+                            ),
+                          ]),
                         ]),
                       ),
                     );
@@ -332,6 +399,58 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
       ),
     );
   }
+}
+
+// ── Info badge ────────────────────────────────────────────────────────────────
+
+class _InfoBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const _InfoBadge(this.icon, this.label, this.color);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: color.withValues(alpha: 0.3)),
+    ),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 12, color: color),
+      const SizedBox(width: 4),
+      Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500)),
+    ]),
+  );
+}
+
+// ── Action button ─────────────────────────────────────────────────────────────
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _ActionButton({required this.icon, required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 5),
+        Text(label, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600)),
+      ]),
+    ),
+  );
 }
 
 // ── Filter chip ───────────────────────────────────────────────────────────────

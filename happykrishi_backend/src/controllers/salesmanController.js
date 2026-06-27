@@ -12,7 +12,7 @@ function issueToken(user) {
 // ── List all salesmen ─────────────────────────────────────────────────────────
 function listSalesmen(req, res) {
   const salesmen = db.prepare(
-    "SELECT id, name, phone, is_active, created_at FROM users WHERE role = 'salesman' ORDER BY name"
+    "SELECT id, name, phone, is_active, created_at, last_login_at, last_active_at FROM users WHERE role = 'salesman' ORDER BY name"
   ).all();
 
   const result = salesmen.map(s => {
@@ -266,6 +266,7 @@ function salesmanLogin(req, res) {
   if (!bcrypt.compareSync(password, user.password_hash || '')) {
     return res.status(401).json({ error: 'Incorrect password' });
   }
+  db.prepare("UPDATE users SET last_login_at=datetime('now', '+5 hours', '+30 minutes') WHERE id=?").run(user.id);
   const token = issueToken(user);
   res.json({ token, user: { id: user.id, name: user.name, phone: user.phone, role: user.role } });
 }

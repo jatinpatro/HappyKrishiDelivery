@@ -8,6 +8,7 @@ import '../../core/services/pdf_service.dart';
 import '../../core/widgets/active_filter.dart';
 import '../../core/widgets/filter_chip_bar.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/order_summary_card.dart';
 
 final ordersProvider = FutureProvider.autoDispose.family<List<Order>, String>((ref, key) async {
   // key = "search|status|dateFrom|dateTo"
@@ -104,6 +105,11 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
               if (user == null || list.isEmpty) return;
               PdfService.shareOrderHistory(context: context, user: user, orders: list);
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => ref.invalidate(ordersProvider(_providerKey)),
           ),
         ],
       ),
@@ -344,77 +350,104 @@ class _Chip extends StatelessWidget {
 
 // ── Order tile ────────────────────────────────────────────────────────────────
 
-class _OrderTile extends StatelessWidget {
+class _OrderTile extends ConsumerStatefulWidget {
   final Order order;
   const _OrderTile({required this.order});
 
-  Color _statusColor(String s) => switch (s) {
-    'delivered'                  => Colors.green,
-    'cancelled'                  => Colors.red,
-    'dispatched' || 'assigned'   => Colors.blue,
-    _                            => Colors.orange,
-  };
+  @override
+  ConsumerState<_OrderTile> createState() => _OrderTileState();
+}
 
-  IconData _statusIcon(String s) => switch (s) {
-    'delivered'  => Icons.check_circle,
-    'cancelled'  => Icons.cancel,
-    'dispatched' => Icons.local_shipping,
-    'assigned'   => Icons.person_pin,
-    'confirmed'  => Icons.thumb_up,
-    _            => Icons.hourglass_empty,
-  };
+class _OrderTileState extends ConsumerState<_OrderTile> {
+  bool _confirming = false;
+
+  Future<void> _confirmDelivery() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Delivery?'),
+        content: const Text('Confirm that you have received your order.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            child: const Text('Yes, I received it'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _confirming = true);
+    try {
+      await ref.read(dioProvider).post(Endpoints.orderConfirmDelivery(widget.order.id));
+      ref.invalidate(ordersProvider);
+    } catch (_) {
+      if (mounted) { ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not confirm — try again'))); }
+    } finally {
+      if (mounted) { setState(() => _confirming = false); }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => context.push('/orders/${order.id}'),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Text('#${order.orderNumber}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                    color: _statusColor(order.status).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(_statusIcon(order.status), size: 14,
-                      color: _statusColor(order.status)),
-                  const SizedBox(width: 4),
-                  Text(order.status.toUpperCase(),
-                      style: TextStyle(fontSize: 12,
-                          color: _statusColor(order.status),
-                          fontWeight: FontWeight.w600)),
-                ]),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            Text('${order.city ?? ''}  •  ${order.slotLabel ?? ''}',
-                style: const TextStyle(color: Colors.grey, fontSize: 13)),
-            Text('Delivery: ${order.deliveryDate}',
-                style: const TextStyle(color: Colors.grey, fontSize: 13)),
-            const SizedBox(height: 8),
-            Row(children: [
-              Text('₹${order.finalAmount.toStringAsFixed(2)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold,
-                      fontSize: 16, color: Color(0xFF2E7D32))),
-              const Spacer(),
-              if (order.status == 'dispatched' || order.status == 'assigned')
-                TextButton.icon(
-                  icon: const Icon(Icons.map, size: 16),
-                  label: const Text('Track'),
-                  onPressed: () => context.push('/track/${order.id}'),
+    final order = widget.order;
+    final isActive = order.status == 'dispatched' || order.status == 'assigned';
+    final canConfirm = order.deliveryCode != null &&
+        order.customerConfirmedAt == null &&
+        isActive;
+
+    return OrderSummaryCard(
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      finalAmount: order.finalAmount,
+      discountAmount: order.discountAmount,
+      couponCode: order.couponCode,
+      deliveryDate: order.deliveryDate,
+      slotLabel: order.slotLabel,
+      addressLine: order.addressLine,
+      city: order.city,
+      orderType: order.orderType,
+      deliveryCode: order.deliveryCode,
+      deliveryConfirmed: order.customerConfirmedAt != null,
+      onTap: () => context.push('/orders/${order.id}'),
+      actions: isActive
+          ? [
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.map, size: 16),
+                    label: const Text('Track Live'),
+                    onPressed: () => context.push('/track/${order.id}'),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF2E7D32),
+                        side: const BorderSide(color: Color(0xFF2E7D32))),
+                  ),
                 ),
-            ]),
-          ]),
-        ),
-      ),
+                if (canConfirm) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _confirming
+                        ? const Center(child: SizedBox(width: 22, height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2E7D32))))
+                        : ElevatedButton.icon(
+                            icon: const Icon(Icons.check_circle_outline, size: 16),
+                            label: const Text('I Received It'),
+                            onPressed: _confirmDelivery,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2E7D32),
+                              foregroundColor: Colors.white,
+                              textStyle: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                  ),
+                ],
+              ]),
+            ]
+          : null,
     );
   }
 }

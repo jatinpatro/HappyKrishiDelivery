@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/api/endpoints.dart';
@@ -54,11 +55,16 @@ class OrderDetailScreen extends ConsumerWidget {
               if (isAdmin) {
                 context.go('/admin/dashboard');
               } else if (isSalesman) {
-                context.go('/salesman/dashboard');
+                context.go('/salesman');
               } else {
                 context.go('/home');
               }
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => ref.invalidate(orderDetailProvider(orderId)),
           ),
           data.when(
             data: (d) {
@@ -83,6 +89,8 @@ class OrderDetailScreen extends ConsumerWidget {
           final order = Order.fromJson(d['order']);
           final items = (d['items'] as List).map((e) => OrderItem.fromJson(e)).toList();
           final delivery = d['delivery'] != null ? DeliveryInfo.fromJson(d['delivery']) : null;
+          // Per-item coupon breakdown: product_id → {discount, is_qualifying}
+          final itemBreakdown = d['item_breakdown'] as Map<String, dynamic>?;
 
           final user = ref.read(authStateProvider).user;
           final isAdmin = user?.role == 'admin' || user?.role == 'subadmin';
@@ -96,12 +104,32 @@ class OrderDetailScreen extends ConsumerWidget {
           return RefreshIndicator(
             onRefresh: () async => ref.invalidate(orderDetailProvider(orderId)),
             child: ListView(padding: const EdgeInsets.all(16), physics: const AlwaysScrollableScrollPhysics(), children: [
-            _StatusCard(order: order, delivery: delivery),
+            _StatusCard(order: order, delivery: delivery, isSalesman: isSalesman),
             const SizedBox(height: 16),
+            // Delivery code card — shown to customer & admin for active delivery orders
+            if (delivery != null &&
+                !['delivered', 'cancelled', 'pending'].contains(order.status) &&
+                order.orderType != 'pickup' &&
+                (user?.role == 'customer' || isAdmin) &&
+                delivery.deliveryCode != null)
+              _DeliveryCodeCard(
+                orderId: orderId,
+                code: delivery.deliveryCode!,
+                alreadyConfirmed: delivery.customerConfirmedAt != null,
+                isAdmin: isAdmin,
+                onConfirmed: () => ref.invalidate(orderDetailProvider(orderId)),
+              ),
+            const SizedBox(height: 8),
+            // Admin/salesman: cancel anytime except delivered/cancelled — shown early so it's always visible
+            if ((isAdmin || isSalesman) &&
+                !['delivered', 'cancelled'].contains(order.status)) ...[
+              _StaffCancelButton(order: order, role: user!.role),
+              const SizedBox(height: 8),
+            ],
             if (salesmanCanAct)
               _SalesmanItemsEditor(items: items, orderId: orderId, delivery: delivery)
             else
-              _OrderItemsList(items: items, orderId: orderId, canEdit: canEditItems),
+              _OrderItemsList(items: items, orderId: orderId, canEdit: canEditItems, itemBreakdown: itemBreakdown),
             const SizedBox(height: 16),
             _PriceSummary(order: order),
             const SizedBox(height: 16),
@@ -109,18 +137,14 @@ class OrderDetailScreen extends ConsumerWidget {
               ElevatedButton.icon(
                 icon: const Icon(Icons.map),
                 label: const Text('Track Live'),
-                onPressed: () => context.push('/track/${order.id}'),
+                onPressed: () => isSalesman
+                    ? context.push('/salesman/track/${order.id}')
+                    : context.push('/track/${order.id}'),
               ),
             // Customer: restricted cancel (cutoff + only pending/confirmed)
             if (!isAdmin && !isSalesman &&
                 (order.status == 'pending' || order.status == 'confirmed'))
               _CancelButton(order: order),
-            // Admin/salesman: cancel anytime except delivered/cancelled
-            if ((isAdmin || isSalesman) &&
-                !['delivered', 'cancelled'].contains(order.status)) ...[
-              const SizedBox(height: 8),
-              _StaffCancelButton(order: order, role: user!.role),
-            ],
             if (order.status == 'delivered')
               OutlinedButton.icon(
                 icon: const Icon(Icons.refresh),
@@ -388,7 +412,8 @@ class _StaffCancelButtonState extends ConsumerState<_StaffCancelButton> {
 class _StatusCard extends StatelessWidget {
   final Order order;
   final DeliveryInfo? delivery;
-  const _StatusCard({required this.order, this.delivery});
+  final bool isSalesman;
+  const _StatusCard({required this.order, this.delivery, this.isSalesman = false});
 
   @override
   Widget build(BuildContext context) {
@@ -401,8 +426,8 @@ class _StatusCard extends StatelessWidget {
       const SizedBox(height: 8),
       Text('Delivery: ${order.deliveryDate}', style: const TextStyle(color: Colors.grey)),
       if (order.slotLabel != null) Text('Slot: ${order.slotLabel}', style: const TextStyle(color: Colors.grey)),
-      // Salesman who confirmed/placed the order
-      if (order.salesmanName != null) ...[
+      // Salesman who confirmed/placed the order — hide when the salesman is viewing their own order
+      if (order.salesmanName != null && !isSalesman) ...[
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -422,10 +447,15 @@ class _StatusCard extends StatelessWidget {
                 Text('+91 ${order.salesmanPhone}',
                     style: const TextStyle(fontSize: 11, color: Colors.grey)),
             ])),
+            if (order.salesmanPhone != null) ...[
+              _ContactBtn(phone: order.salesmanPhone!, isWhatsApp: false),
+              const SizedBox(width: 4),
+              _ContactBtn(phone: order.salesmanPhone!, isWhatsApp: true),
+            ],
           ]),
         ),
       ],
-      if (delivery?.agentName != null) ...[
+      if (delivery?.staffName != null && !isSalesman) ...[
         const SizedBox(height: 8),
         Builder(builder: (_) {
           final d = delivery!;
@@ -442,10 +472,16 @@ class _StatusCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('Delivered by', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                  Text(d.agentName!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  if (d.agentPhone != null)
-                    Text('+91 ${d.agentPhone}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  Text(d.staffName!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  if (d.staffPhone != null)
+                    Text('+91 ${d.staffPhone}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 ])),
+                if (d.staffPhone != null) ...[
+                  _ContactBtn(phone: d.staffPhone!, isWhatsApp: false),
+                  const SizedBox(width: 4),
+                  _ContactBtn(phone: d.staffPhone!, isWhatsApp: true),
+                  const SizedBox(width: 6),
+                ],
                 if (d.deliveredAt != null)
                   Text(d.deliveredAt!.substring(0, 16).replaceAll('T', ' '),
                       style: const TextStyle(fontSize: 11, color: Colors.grey)),
@@ -455,8 +491,13 @@ class _StatusCard extends StatelessWidget {
           return Row(children: [
             const Icon(Icons.badge_outlined, size: 14, color: Colors.grey),
             const SizedBox(width: 6),
-            Text('${d.agentName}  •  +91 ${d.agentPhone ?? ''}',
-                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            Expanded(child: Text('${d.staffName}  •  +91 ${d.staffPhone ?? ''}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey))),
+            if (d.staffPhone != null) ...[
+              _ContactBtn(phone: d.staffPhone!, isWhatsApp: false),
+              const SizedBox(width: 4),
+              _ContactBtn(phone: d.staffPhone!, isWhatsApp: true),
+            ],
           ]);
         }),
       ],
@@ -527,7 +568,8 @@ class _OrderItemsList extends ConsumerWidget {
   final List<OrderItem> items;
   final int orderId;
   final bool canEdit;
-  const _OrderItemsList({required this.items, required this.orderId, this.canEdit = false});
+  final Map<String, dynamic>? itemBreakdown;
+  const _OrderItemsList({required this.items, required this.orderId, this.canEdit = false, this.itemBreakdown});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -540,7 +582,17 @@ class _OrderItemsList extends ConsumerWidget {
         ],
       ]),
       const SizedBox(height: 8),
-      ...items.map((i) => Padding(
+      ...items.map((i) {
+        final lineTotal = i.actualTotal ?? i.estimatedTotal;
+        final couponInfo = itemBreakdown?[i.productId.toString()] as Map<String, dynamic>?;
+        final itemDiscount = (couponInfo?['discount'] as num?)?.toDouble() ?? 0;
+        final discountedLine = lineTotal - itemDiscount;
+        // Format: strip trailing zeros from decimals
+        String amt(double v) => v == v.truncateToDouble()
+            ? v.toStringAsFixed(0)
+            : v.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '');
+
+        return Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -559,12 +611,22 @@ class _OrderItemsList extends ConsumerWidget {
               ]),
           ])),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text('₹${(i.actualTotal ?? i.estimatedTotal).toStringAsFixed(2)}',
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            if (i.actualTotal != null && (i.actualTotal! - i.estimatedTotal).abs() > 0.01)
-              Text('est ₹${i.estimatedTotal.toStringAsFixed(2)}',
-                  style: const TextStyle(fontSize: 10, color: Colors.grey,
+            if (itemDiscount > 0) ...[
+              Text('₹${amt(lineTotal)}',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey,
                       decoration: TextDecoration.lineThrough)),
+              Text('₹${amt(discountedLine)}',
+                  style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
+              Text('-₹${amt(itemDiscount)}',
+                  style: const TextStyle(fontSize: 10, color: Colors.green)),
+            ] else ...[
+              Text('₹${lineTotal.toStringAsFixed(2)}',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              if (i.actualTotal != null && (i.actualTotal! - i.estimatedTotal).abs() > 0.01)
+                Text('est ₹${i.estimatedTotal.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 10, color: Colors.grey,
+                        decoration: TextDecoration.lineThrough)),
+            ],
           ]),
           if (canEdit)
             IconButton(
@@ -576,7 +638,7 @@ class _OrderItemsList extends ConsumerWidget {
               onPressed: () => _showEditDialog(context, ref, i),
             ),
         ]),
-      )),
+      );}),
     ])));
   }
 
@@ -763,11 +825,55 @@ class _SalesmanItemsEditorState extends ConsumerState<_SalesmanItemsEditor> {
       return;
     }
 
+    // If customer hasn't confirmed in-app, ask for the delivery code
+    String? code;
+    final alreadyConfirmed = widget.delivery?.customerConfirmedAt != null;
+
+    if (!alreadyConfirmed) {
+      final codeCtrl = TextEditingController();
+      final entered = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Enter Delivery Code'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Ask the customer for the 6-digit code shown in their app.', style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: codeCtrl,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              autofocus: true,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 4),
+              decoration: const InputDecoration(
+                hintText: '_ _ _ _ _ _',
+                counterText: '',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, codeCtrl.text.trim()),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+              child: const Text('Confirm Delivery'),
+            ),
+          ],
+        ),
+      );
+      if (entered == null || entered.isEmpty || !mounted) return;
+      code = entered;
+    }
+
     setState(() => _marking = true);
     try {
       final dio = ref.read(dioProvider);
-      // Weights already saved via _saveWeights — pass no actual_weights to avoid double deduction
-      await dio.put(Endpoints.salesmanMarkDelivered(deliveryId));
+      await dio.put(
+        Endpoints.salesmanMarkDelivered(deliveryId),
+        data: code != null ? {'code': code} : null,
+      );
 
       ref.invalidate(orderDetailProvider(widget.orderId));
       await ref.read(authStateProvider.notifier).refreshUser();
@@ -780,8 +886,15 @@ class _SalesmanItemsEditorState extends ConsumerState<_SalesmanItemsEditor> {
         context.go('/salesman');
       }
     } on DioException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.response?.data['error'] ?? 'Failed')));
+      if (mounted) {
+        final errCode = e.response?.data['error'] as String?;
+        final msg = errCode == 'invalid_delivery_code'
+            ? 'Incorrect code — ask the customer to check their app'
+            : errCode == 'delivery_code_required'
+                ? 'Enter the 6-digit code from the customer'
+                : e.response?.data['message'] ?? e.response?.data['error'] ?? 'Failed';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+      }
     } finally {
       if (mounted) setState(() => _marking = false);
     }
@@ -919,10 +1032,20 @@ class _PriceSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Format amount: show decimals only when needed
+    String amt(double v) => v == v.truncateToDouble()
+        ? v.toStringAsFixed(0)
+        : v.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '');
+
     return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
       _Row('Subtotal', '₹${order.subtotal.toStringAsFixed(2)}'),
       _Row('Delivery', order.deliveryCharge == 0 ? 'FREE' : '₹${order.deliveryCharge.toStringAsFixed(0)}'),
-      if (order.discountAmount > 0) _Row('Discount', '-₹${order.discountAmount.toStringAsFixed(2)}'),
+      if (order.discountAmount > 0)
+        _Row(
+          order.couponCode != null ? 'Promo (${order.couponCode})' : 'Discount',
+          '-₹${amt(order.discountAmount)}',
+          valueColor: Colors.green,
+        ),
       const Divider(),
       _Row('Total', '₹${order.finalAmount.toStringAsFixed(2)}', bold: true),
     ])));
@@ -933,13 +1056,161 @@ class _Row extends StatelessWidget {
   final String label;
   final String value;
   final bool bold;
-  const _Row(this.label, this.value, {this.bold = false});
+  final Color? valueColor;
+  const _Row(this.label, this.value, {this.bold = false, this.valueColor});
   @override
   Widget build(BuildContext context) {
     final style = bold ? const TextStyle(fontWeight: FontWeight.bold, fontSize: 16) : null;
+    final vStyle = style?.copyWith(color: valueColor ?? const Color(0xFF2E7D32))
+        ?? (valueColor != null ? TextStyle(color: valueColor) : null);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label, style: style), Text(value, style: style?.copyWith(color: const Color(0xFF2E7D32)))]),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(label, style: style), Text(value, style: vStyle)]),
+    );
+  }
+}
+
+// ── Contact button (call or WhatsApp) ─────────────────────────────────────────
+
+class _ContactBtn extends StatelessWidget {
+  final String phone;
+  final bool isWhatsApp;
+  const _ContactBtn({required this.phone, required this.isWhatsApp});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        final uri = isWhatsApp
+            ? Uri.parse('https://wa.me/91$phone')
+            : Uri.parse('tel:+91$phone');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: isWhatsApp ? Colors.green.shade50 : Colors.blue.shade50,
+          shape: BoxShape.circle,
+          border: Border.all(
+              color: isWhatsApp ? Colors.green.shade300 : Colors.blue.shade300),
+        ),
+        child: Icon(
+          isWhatsApp ? Icons.chat_outlined : Icons.call_outlined,
+          size: 14,
+          color: isWhatsApp ? Colors.green.shade700 : Colors.blue.shade700,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Delivery Code Card ────────────────────────────────────────────────────────
+
+class _DeliveryCodeCard extends ConsumerStatefulWidget {
+  final int orderId;
+  final String code;
+  final bool alreadyConfirmed;
+  final bool isAdmin;
+  final VoidCallback onConfirmed;
+  const _DeliveryCodeCard({
+    required this.orderId, required this.code, required this.alreadyConfirmed,
+    required this.isAdmin, required this.onConfirmed,
+  });
+  @override
+  ConsumerState<_DeliveryCodeCard> createState() => _DeliveryCodeCardState();
+}
+
+class _DeliveryCodeCardState extends ConsumerState<_DeliveryCodeCard> {
+  bool _confirming = false;
+
+  Future<void> _confirmDelivery() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Delivery?'),
+        content: const Text('Confirm that you have received your order. This will allow the salesman to close the delivery.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            child: const Text('Yes, I received it'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _confirming = true);
+    try {
+      await ref.read(dioProvider).post(Endpoints.orderConfirmDelivery(widget.orderId));
+      widget.onConfirmed();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not confirm — try again')));
+    } finally {
+      if (mounted) setState(() => _confirming = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final confirmed = widget.alreadyConfirmed;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: confirmed ? Colors.green.shade50 : const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: confirmed ? Colors.green.shade400 : const Color(0xFF2E7D32).withValues(alpha: 0.5),
+          width: 1.5,
+        ),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(confirmed ? Icons.verified_outlined : Icons.lock_outline,
+              color: const Color(0xFF2E7D32), size: 16),
+          const SizedBox(width: 8),
+          Text(
+            confirmed ? 'Delivery Confirmed' : 'Your Delivery Code',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B5E20)),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Text(
+            widget.code,
+            style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold,
+                letterSpacing: 6, color: Color(0xFF2E7D32)),
+          ),
+          const Spacer(),
+          if (!confirmed && !widget.isAdmin) ...[
+            if (_confirming)
+              const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2E7D32)))
+            else
+              ElevatedButton.icon(
+                icon: const Icon(Icons.check_circle_outline, size: 16),
+                label: const Text('I Received It'),
+                onPressed: _confirmDelivery,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2E7D32),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+              ),
+          ],
+          if (confirmed)
+            const Icon(Icons.check_circle, color: Colors.green, size: 28),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+          confirmed
+              ? 'You confirmed receipt. Salesman can now close this delivery.'
+              : 'Share this code with your salesman on arrival, or tap "I Received It".',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+      ]),
     );
   }
 }

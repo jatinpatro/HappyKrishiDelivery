@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:latlong2/latlong.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/location_picker_screen.dart';
 import '../admin/admin_tiers_screen.dart' show tierColor;
 
 final addressesProvider = FutureProvider.autoDispose<List<Address>>((ref) async {
@@ -31,9 +33,22 @@ class ProfileScreen extends ConsumerWidget {
             tooltip: 'Home',
             onPressed: () => context.go('/home'),
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () {
+              ref.invalidate(addressesProvider);
+              ref.read(authStateProvider.notifier).refreshUser();
+            },
+          ),
         ],
       ),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(addressesProvider);
+          await ref.read(authStateProvider.notifier).refreshUser();
+        },
+        child: ListView(padding: const EdgeInsets.all(16), children: [
         // User info card
         Card(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -147,6 +162,13 @@ class ProfileScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 10),
         OutlinedButton.icon(
+          icon: const Icon(Icons.card_giftcard_outlined, color: Color(0xFF2E7D32)),
+          label: const Text('Referral Program',
+              style: TextStyle(color: Color(0xFF2E7D32))),
+          onPressed: () => context.push('/referral'),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
           icon: const Icon(Icons.lock_reset, color: Color(0xFF2E7D32)),
           label: const Text('Change Password',
               style: TextStyle(color: Color(0xFF2E7D32))),
@@ -170,6 +192,7 @@ class ProfileScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 24),
       ]),
+      ),
     );
   }
 
@@ -335,14 +358,20 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
   String _pincodeMsg = '';
   String? _lastCheckedPincode;
   double? _pincodeDistanceKm;
+  double? _pincodeLat;
+  double? _pincodeLng;
 
   bool _isDefault = false;
   bool _saving = false;
+  double? _lat;
+  double? _lng;
 
   @override
   void initState() {
     super.initState();
     _isDefault = widget.existing?.isDefault ?? false;
+    _lat = widget.existing?.lat;
+    _lng = widget.existing?.lng;
     // If editing and has a pincode, pre-check it
     final pin = widget.existing?.pincode ?? '';
     if (pin.length == 6) {
@@ -382,12 +411,16 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
       final deliverable = data['deliverable'] as bool?;
       final distKm = data['distance_km'] as num?;
       final district = data['district'] as String? ?? '';
+      final pLat = (data['lat'] as num?)?.toDouble();
+      final pLng = (data['lng'] as num?)?.toDouble();
       if (mounted) {
         setState(() {
           _lastCheckedPincode = pincode;
           _checkingPincode = false;
           _pincodeDeliverable = deliverable;
           _pincodeDistanceKm = distKm?.toDouble();
+          _pincodeLat = pLat;
+          _pincodeLng = pLng;
           _pincodeMsg = deliverable == true
               ? '✓ Deliverable${district.isNotEmpty ? ' — $district' : ''}${distKm != null ? ' (${distKm}km)' : ''}'
               : deliverable == false
@@ -440,6 +473,8 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
         'city': _cityCtrl.text.trim(),
         'pincode': pincode.isEmpty ? null : pincode,
         'is_default': _isDefault,
+        if (_lat != null) 'lat': _lat,
+        if (_lng != null) 'lng': _lng,
       };
       if (widget.existing != null) {
         await dio.put(Endpoints.address(widget.existing!.id), data: data);
@@ -554,6 +589,64 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
                         : Colors.orange.shade700,
               ),
             ),
+          ],
+
+          // Pin exact location — shown once pincode is deliverable
+          if (_pincodeDeliverable == true && _pincodeLat != null) ...[
+            const SizedBox(height: 8),
+            if (_lat != null && _lng != null)
+              Row(children: [
+                const Icon(Icons.location_pin, size: 16, color: Color(0xFF2E7D32)),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text('Location pinned',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32),
+                          fontWeight: FontWeight.w500)),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final picked = await Navigator.push<LatLng>(
+                      context,
+                      MaterialPageRoute(builder: (_) => LocationPickerScreen(
+                        initialCenter: LatLng(_pincodeLat!, _pincodeLng!),
+                        existingPin: LatLng(_lat!, _lng!),
+                      )),
+                    );
+                    if (picked != null && mounted) {
+                      setState(() { _lat = picked.latitude; _lng = picked.longitude; });
+                    }
+                  },
+                  style: TextButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2)),
+                  child: const Text('Change', style: TextStyle(fontSize: 12)),
+                ),
+              ])
+            else
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.pin_drop_outlined, size: 16),
+                  label: const Text('Pin your exact location'),
+                  onPressed: () async {
+                    final picked = await Navigator.push<LatLng>(
+                      context,
+                      MaterialPageRoute(builder: (_) => LocationPickerScreen(
+                        initialCenter: LatLng(_pincodeLat!, _pincodeLng!),
+                      )),
+                    );
+                    if (picked != null && mounted) {
+                      setState(() { _lat = picked.latitude; _lng = picked.longitude; });
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF2E7D32),
+                    side: const BorderSide(color: Color(0xFF2E7D32)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ),
           ],
 
           // Out-of-range: request custom delivery banner

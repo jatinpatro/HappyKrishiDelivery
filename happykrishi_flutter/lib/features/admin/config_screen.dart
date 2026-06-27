@@ -69,6 +69,11 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
             tooltip: 'Home',
             onPressed: () => context.go('/admin/dashboard'),
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => ref.invalidate(configProvider),
+          ),
         ],
       ),
       body: config.when(

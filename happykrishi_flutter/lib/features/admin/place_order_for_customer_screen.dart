@@ -138,7 +138,7 @@ class _PlaceOrderForCustomerScreenState
           IconButton(
             icon: const Icon(Icons.home_outlined),
             tooltip: 'Home',
-            onPressed: () => context.go('/admin/dashboard'),
+            onPressed: () => context.go(role == 'salesman' ? '/salesman' : '/admin/dashboard'),
           ),
         ],
         leading: _step == 0
