@@ -391,6 +391,31 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
             ],
 
             const SizedBox(height: 24),
+
+            // ── WhatsApp help button ─────────────────────────────────────────
+            Center(
+              child: TextButton.icon(
+                icon: const Icon(Icons.chat_outlined, size: 16, color: Color(0xFF25D366)),
+                label: const Text(
+                  'Need help? Contact us on WhatsApp',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                onPressed: () async {
+                  try {
+                    final dio = ref.read(dioProvider);
+                    final res = await dio.get(Endpoints.appInfo);
+                    final wa = res.data['contact']?['whatsapp'] as String? ?? '';
+                    if (wa.isNotEmpty) {
+                      final msg = Uri.encodeComponent('Hi, I need help with my HappyKrishi account login.');
+                      final uri = Uri.parse('https://wa.me/91$wa?text=$msg');
+                      launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  } catch (_) {}
+                },
+              ),
+            ),
+
+            const SizedBox(height: 24),
           ]),
         ),
       ),

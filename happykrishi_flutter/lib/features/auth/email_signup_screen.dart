@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
-import '../../core/models/models.dart';
 
 class EmailSignupScreen extends ConsumerStatefulWidget {
   const EmailSignupScreen({super.key});
@@ -65,12 +64,28 @@ class _EmailSignupScreenState extends ConsumerState<EmailSignupScreen> {
         if (_birthdate != null)
           'birthdate': '${_birthdate!.year}-${_birthdate!.month.toString().padLeft(2, '0')}-${_birthdate!.day.toString().padLeft(2, '0')}',
       });
-      final token = res.data['token'] as String;
-      final user  = AppUser.fromJson(res.data['user']);
-      ref.read(authStateProvider.notifier).setUserFromToken(token, user);
-      if (mounted) context.go('/home');
+      final returnedPhone = res.data['phone'] as String? ?? phone;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Account created! Please verify your phone number.'),
+          backgroundColor: Color(0xFF2E7D32),
+        ));
+        context.go('/auth/verify?phone=$returnedPhone&mode=customer');
+      }
     } on DioException catch (e) {
-      _show(e.response?.data['error'] ?? 'Signup failed');
+      final error = e.response?.data['error'] as String? ?? 'Signup failed';
+      // If phone already exists, user may have signed up before and cancelled OTP
+      // — redirect them to verify instead of showing an error
+      if (error.contains('Phone number already registered') && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Account exists for this phone — please verify with OTP.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ));
+        context.go('/auth/verify?phone=${_phoneCtrl.text.trim()}&mode=customer');
+      } else {
+        _show(error);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

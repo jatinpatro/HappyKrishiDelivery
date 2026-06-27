@@ -303,8 +303,7 @@ function updateProfile(req, res) {
 }
 
 // ── Email signup (new customer) — collects full profile ───────────────────────
-function emailSignup(req, res) {
-  const { name, email, phone, password, gender, birthdate } = req.body;
+async function emailSignup(req, res) {  const { name, email, phone, password, gender, birthdate } = req.body;
   if (!name || !email || !phone || !password) {
     return res.status(400).json({ error: 'name, email, phone and password are required' });
   }
@@ -344,8 +343,15 @@ function emailSignup(req, res) {
         db.prepare("SELECT id FROM customer_tiers WHERE name='Normal' LIMIT 1").get()?.id ?? null);
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-  const token = issueToken(user);
-  res.status(201).json({ token, user: safeUser(user), is_new: true });
+
+  // Send OTP for phone verification — referral credit happens after OTP verify
+  try {
+    const code = otpService.generateOtp();
+    otpService.saveOtp(finalPhone, code);
+    await otpService.sendSmsOtp(finalPhone, code);
+  } catch (e) { console.error('[emailSignup OTP send]', e); }
+
+  res.status(201).json({ phone: finalPhone, needs_verification: true });
 }
 
 // ── Email / phone login (customers) ──────────────────────────────────────────
