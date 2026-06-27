@@ -13,7 +13,7 @@ BACKEND_DIR="/root/HAPPYKRISHI_DELIVERY"
 WEB_DIR="/root/HAPPYKRISHI_DELIVERY_WEB"
 API_PORT="4000"
 API_BASE_URL="https://delivery.happykrishi.com"
-WS_BASE_URL="wss://delivery.happykrishi.com"
+WS_BASE_URL="wss://delivery.happykrishi.com/ws"
 WEB_PATH=""
 
 FLUTTER_DIR="$(dirname "$0")/happykrishi_flutter"
@@ -105,6 +105,7 @@ rsync -az --delete \
   --exclude logs \
   --exclude '*.pid' \
   --exclude 'data/' \
+  --filter='protect uploads/***' \
   --exclude 'uploads/' \
   -e "ssh ${SSH_OPTS}" \
   "${BACKEND_SRC}/" \
@@ -212,13 +213,22 @@ if [ -f app.pid ]; then
   OLD_PID=\$(cat app.pid)
   if kill -0 \$OLD_PID 2>/dev/null; then
     echo "[Server] Stopping old process \$OLD_PID..."
-    kill \$OLD_PID; sleep 3
+    kill \$OLD_PID
+    # Wait up to 10s for clean exit
+    for i in \$(seq 1 10); do
+      kill -0 \$OLD_PID 2>/dev/null || break
+      sleep 1
+    done
     kill -9 \$OLD_PID 2>/dev/null || true
   fi
   rm -f app.pid
 fi
+# Kill anything else holding the port and wait until it's actually free
 fuser -k 4000/tcp 2>/dev/null || true
-sleep 1
+for i in \$(seq 1 10); do
+  fuser 4000/tcp 2>/dev/null || break
+  sleep 1
+done
 
 # ── Start fresh ───────────────────────────────────────────────────────────────
 echo "" >> logs/app.log

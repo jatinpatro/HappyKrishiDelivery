@@ -8,6 +8,7 @@ import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../admin/place_order_for_customer_screen.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/order_summary_card.dart';
 
 final salesmanDashboardProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -106,7 +107,7 @@ class _SalesmanDashboardScreenState extends ConsumerState<SalesmanDashboardScree
     super.dispose();
   }
 
-  // ── Location sharing — active whenever salesman has an assigned/picked delivery
+  // ── Location sharing — always active while salesman dashboard is open
   Future<void> _startLocationSharing() async {
     LocationPermission perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) {
@@ -123,11 +124,6 @@ class _SalesmanDashboardScreenState extends ConsumerState<SalesmanDashboardScree
   Future<void> _sendLocation() async {
     // Always refresh dashboard to pick up remote cancellations / status changes
     ref.invalidate(salesmanDashboardProvider);
-
-    // Only send GPS if there's an active delivery
-    final dashboard = ref.read(salesmanDashboardProvider).value;
-    final orders = dashboard?['assigned_orders'] as List? ?? [];
-    if (orders.isEmpty) return;
 
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -153,6 +149,11 @@ class _SalesmanDashboardScreenState extends ConsumerState<SalesmanDashboardScree
       appBar: AppBar(
         title: Text('Hi, ${user?.name ?? 'Salesman'} 👋'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            tooltip: 'Money',
+            onPressed: () => context.go('/salesman/money'),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -463,113 +464,123 @@ class _PendingOrderCardState extends ConsumerState<_PendingOrderCard> {
     }
   }
 
+  bool _cancelling = false;
+
+  Future<void> _cancelOrder() async {
+    final orderId = widget.order['id'] as int;
+    final orderNum = widget.order['order_number'] as String;
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setDs) => AlertDialog(
+        title: Text('Cancel Order #$orderNum?'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text(
+            'The full amount will be refunded to the customer\'s wallet immediately.',
+            style: TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: reasonCtrl,
+            autofocus: true,
+            maxLines: 3,
+            onChanged: (_) => setDs(() {}),
+            decoration: const InputDecoration(
+              labelText: 'Reason *',
+              hintText: 'e.g. Customer requested, stock issue...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Back')),
+          ElevatedButton(
+            onPressed: reasonCtrl.text.trim().isEmpty ? null : () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Cancel Order'),
+          ),
+        ],
+      )),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _cancelling = true);
+    try {
+      await ref.read(dioProvider).post(
+        Endpoints.staffCancelOrder(orderId, 'salesman'),
+        data: {'reason': reasonCtrl.text.trim()},
+      );
+      widget.onRefresh();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order cancelled. Refund added to wallet.'), backgroundColor: Colors.green));
+    } on DioException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.response?.data['error'] ?? 'Cancellation failed')));
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final o = widget.order;
-    final amount = (o['final_amount'] as num).toDouble();
-    final isPickup = o['order_type'] == 'pickup';
     final items = (o['items'] as List? ?? []).cast<Map<String, dynamic>>();
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.orange.shade200),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => context.push('/orders/${o['id']}'),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade300),
-                ),
-                child: const Text('PENDING', style: TextStyle(
-                    fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange)),
-              ),
-              const SizedBox(width: 8),
-              if (isPickup) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: Colors.teal.shade50, borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.teal.shade200)),
-                  child: Text('🏪 Pickup', style: TextStyle(fontSize: 10, color: Colors.teal.shade700, fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(width: 8),
-              ],
-              Text('#${o['order_number']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              const Spacer(),
-              Text('₹${amount.toStringAsFixed(0)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF2E7D32))),
-            ]),
-            const SizedBox(height: 6),
-            Row(children: [
-              const Icon(Icons.person_outline, size: 14, color: Colors.grey),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text('${o['customer_name']}  •  +91 ${o['customer_phone']}',
-                    style: const TextStyle(fontSize: 13)),
-              ),
-              if ((o['customer_wallet_balance'] as num?)?.toDouble() != null &&
-                  (o['customer_wallet_balance'] as num).toDouble() < 0)
-                _NegativeWalletBadge(balance: (o['customer_wallet_balance'] as num).toDouble()),
-            ]),
-            const SizedBox(height: 3),
-            Row(children: [
-              const Icon(Icons.calendar_today_outlined, size: 13, color: Colors.grey),
-              const SizedBox(width: 5),
-              Text('${o['delivery_date']}  ${o['slot_label'] != null ? '• ${o['slot_label']}' : ''}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            ]),
-            if (!isPickup && o['address_line'] != null) ...[
-              const SizedBox(height: 3),
-              Row(children: [
-                const Icon(Icons.location_on_outlined, size: 13, color: Colors.grey),
-                const SizedBox(width: 5),
-                Expanded(child: Text('${o['address_line']}, ${o['city'] ?? ''}',
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    maxLines: 1, overflow: TextOverflow.ellipsis)),
-              ]),
-            ],
-            if (items.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              ...items.take(3).map((i) => Text(
-                '• ${i['product_name']}  ${(i['estimated_qty'] as num).toStringAsFixed(2)} ${i['unit']}',
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
-              )),
-              if (items.length > 3)
-                Text('+${items.length - 3} more items', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            ],
-            const SizedBox(height: 10),
-            const Divider(height: 1),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: _loading
-                    ? const SizedBox(width: 16, height: 16,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Icon(Icons.check_circle_outline, size: 18),
-                label: const Text('Confirm & Assign to Me'),
-                onPressed: _loading ? null : _confirmAndAssign,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 11),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
+    return OrderSummaryCard(
+      orderId: o['id'] as int,
+      orderNumber: o['order_number'] as String,
+      status: o['status'] as String? ?? 'pending',
+      finalAmount: (o['final_amount'] as num).toDouble(),
+      discountAmount: (o['discount_amount'] as num?)?.toDouble() ?? 0,
+      couponCode: o['coupon_code'] as String?,
+      customerName: o['customer_name'] as String?,
+      customerPhone: o['customer_phone'] as String?,
+      customerWalletBalance: (o['customer_wallet_balance'] as num?)?.toDouble(),
+      deliveryDate: o['delivery_date'] as String?,
+      slotLabel: o['slot_label'] as String?,
+      addressLine: o['address_line'] as String?,
+      city: o['city'] as String?,
+      orderType: o['order_type'] as String?,
+      items: items.isNotEmpty ? items : null,
+      showCustomerContact: true,
+      onTap: () => context.push('/salesman/orders/${o['id']}'),
+      borderColor: Colors.orange.shade200,
+      actions: [
+        Row(children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              icon: _loading
+                  ? const SizedBox(width: 16, height: 16,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.check_circle_outline, size: 18),
+              label: const Text('Confirm & Assign'),
+              onPressed: _loading ? null : _confirmAndAssign,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2E7D32),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
-          ]),
-        ),
-      ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              icon: _cancelling
+                  ? const SizedBox(width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red))
+                  : const Icon(Icons.cancel_outlined, size: 18),
+              label: const Text('Cancel'),
+              onPressed: _cancelling ? null : _cancelOrder,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+        ]),
+      ],
     );
   }
 }
@@ -770,6 +781,125 @@ class _CollectionsTabState extends ConsumerState<_CollectionsTab>
                   loading: () => const Center(child: CircularProgressIndicator()),
                   error: (e, _) { logError('salesman-collections', e); return Text(friendlyError(e)); },
                 ),
+
+                // ── Credit advances given by me ─────────────────────────────
+                const SizedBox(height: 20),
+                const Text('My Credit Advances',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 4),
+                const Text('Wallet credits given before payment. Mark paid when customer settles.',
+                    style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 12),
+                ref.watch(salesmanDashboardProvider).when(
+                  data: (d) {
+                    final ca = d['credit_advances'] as Map<String, dynamic>?;
+                    final all = (ca?['items'] as List? ?? []).cast<Map<String, dynamic>>();
+
+                    // State 1 — given, customer hasn't paid back
+                    final awaitingPayment = all.where((a) =>
+                        (a['payment_received'] as int? ?? 0) == 0).toList();
+
+                    // State 2 — customer paid salesman, not yet raised with admin
+                    final paidNotRaised = all.where((a) =>
+                        (a['payment_received'] as int? ?? 0) == 1 &&
+                        (a['paid_by_role'] as String?) == 'salesman' &&
+                        a['settlement_id'] == null).toList();
+
+                    // State 3 — settled with admin (admin marked paid, or raised in settlement)
+                    final settledWithAdmin = all.where((a) =>
+                        (a['payment_received'] as int? ?? 0) == 1 &&
+                        ((a['paid_by_role'] as String?) == 'admin' ||
+                         a['settlement_id'] != null)).toList();
+
+                    if (all.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: Text('No credit advances yet', style: TextStyle(color: Colors.grey))),
+                      );
+                    }
+                    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+                      // ── State 1: Awaiting customer payment ─────────────────
+                      if (awaitingPayment.isNotEmpty) ...[
+                        _CreditAdvanceStateHeader(
+                          label: '🟠 Awaiting Customer Payment (${awaitingPayment.length})',
+                          color: Colors.orange,
+                        ),
+                        const SizedBox(height: 6),
+                        ...awaitingPayment.map((a) => _CreditAdvanceCard(
+                          advance: a,
+                          stateColor: Colors.orange,
+                          onMarkPaid: () async {
+                            final id = a['id'] as int;
+                            final amount = (a['amount'] as num).toDouble();
+                            final name = a['user_name'] as String? ?? 'customer';
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Mark Payment Received?'),
+                                content: Text('Confirm ₹${amount.toStringAsFixed(0)} received from $name.'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                  ElevatedButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                                    child: const Text('Mark Received'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirm != true) return;
+                            try {
+                              await ref.read(dioProvider).post(Endpoints.salesmanMarkCreditPaid(id));
+                              ref.invalidate(salesmanDashboardProvider);
+                              ref.invalidate(salesmanApprovedCollectionsProvider);
+                              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text('₹${amount.toStringAsFixed(0)} received from $name ✅'),
+                                backgroundColor: Colors.blue,
+                              ));
+                            } catch (e, st) {
+                              logError('salesman-credit-advance', e, st);
+                              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+                            }
+                          },
+                        )),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── State 2: Customer paid, raise with admin ────────────
+                      if (paidNotRaised.isNotEmpty) ...[
+                        _CreditAdvanceStateHeader(
+                          label: '🔵 Customer Paid — Raise with Admin (${paidNotRaised.length})',
+                          color: Colors.blue,
+                        ),
+                        const SizedBox(height: 6),
+                        ...paidNotRaised.map((a) => _CreditAdvanceCard(
+                          advance: a,
+                          stateColor: Colors.blue,
+                          onMarkPaid: null,
+                        )),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── State 3: Settled with admin ─────────────────────────
+                      if (settledWithAdmin.isNotEmpty) ...[
+                        _CreditAdvanceStateHeader(
+                          label: '🟢 Settled with Admin (${settledWithAdmin.length})',
+                          color: Colors.green,
+                        ),
+                        const SizedBox(height: 6),
+                        ...settledWithAdmin.map((a) => _CreditAdvanceCard(
+                          advance: a,
+                          stateColor: Colors.green,
+                          onMarkPaid: null,
+                        )),
+                      ],
+
+                    ]);
+                  },
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (_, st) => const SizedBox.shrink(),
+                ),
               ]),
             ),
 
@@ -888,7 +1018,9 @@ class _RaiseSettlementTabState extends ConsumerState<_RaiseSettlementTab> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) { logError('salesman-collections', e); return Center(child: Text(friendlyError(e))); },
         data: (d) {
-          final unsettled = (d['unsettled'] as List? ?? []).cast<Map<String, dynamic>>();
+          final unsettled    = (d['unsettled'] as List? ?? []).cast<Map<String, dynamic>>();
+          final cashItems    = unsettled.where((r) => r['payment_method'] == 'cash').toList();
+          final advanceItems = unsettled.where((r) => r['payment_method'] == 'credit_advance').toList();
 
           if (unsettled.isEmpty) {
             return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -905,97 +1037,91 @@ class _RaiseSettlementTabState extends ConsumerState<_RaiseSettlementTab> {
           final validIds = unsettled.map((r) => r['id'] as int).toSet();
           _selected.retainAll(validIds);
 
-          final selectedTotal = unsettled
-              .where((r) => _selected.contains(r['id'] as int))
-              .fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
+          final cashIds    = cashItems.map((r) => r['id'] as int).toSet();
+          final advanceIds = advanceItems.map((r) => r['id'] as int).toSet();
+          final cashTotal    = cashItems.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
+          final advanceTotal = advanceItems.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
 
-          return Column(children: [
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(children: [
-                Checkbox(
-                  value: _selected.length == unsettled.length
-                      ? true
-                      : _selected.isEmpty ? false : null,
-                  tristate: true,
-                  activeColor: const Color(0xFF1565C0),
-                  onChanged: (v) => setState(() {
-                    if (_selected.length == unsettled.length) _selected.clear();
-                    else _selected.addAll(validIds);
-                  }),
-                ),
-                const SizedBox(width: 4),
-                Text('${_selected.length}/${unsettled.length} selected',
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                const Spacer(),
-                if (_selected.isNotEmpty)
-                  Text('₹${selectedTotal.toStringAsFixed(0)}',
-                      style: const TextStyle(color: Color(0xFF1565C0),
-                          fontWeight: FontWeight.bold, fontSize: 13)),
-              ]),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 100), children: [
-                ...unsettled.map((r) {
-                  final id = r['id'] as int;
-                  final amount = (r['amount'] as num).toDouble();
-                  final customer = r['customer_name'] as String? ?? '';
-                  final date = (r['resolved_at'] ?? r['created_at'] as String).toString().substring(0, 10);
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    color: _selected.contains(id) ? const Color(0xFFE3F2FD) : null,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: BorderSide(
-                          color: _selected.contains(id)
-                              ? const Color(0xFF1565C0) : Colors.grey.shade200),
-                    ),
-                    child: CheckboxListTile(
-                      value: _selected.contains(id),
-                      activeColor: const Color(0xFF1565C0),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      onChanged: (v) => setState(() {
-                        if (v == true) _selected.add(id); else _selected.remove(id);
-                      }),
-                      title: Text('₹${amount.toStringAsFixed(0)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      subtitle: Text('$customer  •  $date',
-                          style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                    ),
-                  );
-                }),
-              ]),
-            ),
-            if (_selected.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 8, offset: const Offset(0, -2))],
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.send_to_mobile),
-                    label: Text('Raise for ${_selected.length} item${_selected.length == 1 ? '' : 's'} — ₹${selectedTotal.toStringAsFixed(0)}'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1565C0),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () => _confirmRaise(context, selectedTotal, _selected.length, List.from(_selected)),
+          return RefreshIndicator(
+            onRefresh: () async => ref.invalidate(salesmanApprovedCollectionsProvider),
+            child: ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 24), children: [
+
+              // ── Cash Collections ────────────────────────────────────────────
+              if (cashItems.isNotEmpty) ...[
+                _RaiseSectionHeader(
+                  icon: Icons.payments_outlined,
+                  label: 'Cash Collections (${cashItems.length})',
+                  total: cashTotal,
+                  color: const Color(0xFF1565C0),
+                  onRaiseAll: () => _confirmRaise(
+                    context, cashTotal, cashItems.length,
+                    cashIds.toList(), 'cash',
                   ),
                 ),
-              ),
-          ]);
+                const SizedBox(height: 8),
+                ...cashItems.map((r) => _RaiseItemTile(
+                  request: r,
+                  selected: _selected.contains(r['id'] as int),
+                  color: const Color(0xFF1565C0),
+                  onToggle: (v) => setState(() {
+                    if (v) _selected.add(r['id'] as int);
+                    else _selected.remove(r['id'] as int);
+                  }),
+                )),
+                if (cashIds.any(_selected.contains)) ...[
+                  const SizedBox(height: 6),
+                  _RaiseSelectionButton(
+                    selected: _selected.intersection(cashIds),
+                    items: cashItems,
+                    color: const Color(0xFF1565C0),
+                    type: 'cash',
+                    onRaise: (ids, total) => _confirmRaise(context, total, ids.length, ids, 'cash'),
+                  ),
+                ],
+                const SizedBox(height: 20),
+              ],
+
+              // ── Credit Advance Repayments ────────────────────────────────────
+              if (advanceItems.isNotEmpty) ...[
+                _RaiseSectionHeader(
+                  icon: Icons.add_card_outlined,
+                  label: 'Credit Advance Repayments (${advanceItems.length})',
+                  total: advanceTotal,
+                  color: Colors.indigo,
+                  onRaiseAll: () => _confirmRaise(
+                    context, advanceTotal, advanceItems.length,
+                    advanceIds.toList(), 'credit_advance',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...advanceItems.map((r) => _RaiseItemTile(
+                  request: r,
+                  selected: _selected.contains(r['id'] as int),
+                  color: Colors.indigo,
+                  onToggle: (v) => setState(() {
+                    if (v) _selected.add(r['id'] as int);
+                    else _selected.remove(r['id'] as int);
+                  }),
+                )),
+                if (advanceIds.any(_selected.contains)) ...[
+                  const SizedBox(height: 6),
+                  _RaiseSelectionButton(
+                    selected: _selected.intersection(advanceIds),
+                    items: advanceItems,
+                    color: Colors.indigo,
+                    type: 'credit_advance',
+                    onRaise: (ids, total) => _confirmRaise(context, total, ids.length, ids, 'credit_advance'),
+                  ),
+                ],
+              ],
+            ]),
+          );
         },
       ),
     );
   }
 
-  Future<void> _confirmRaise(BuildContext context, double total, int count, List<int> ids) async {
+  Future<void> _confirmRaise(BuildContext context, double total, int count, List<int> ids, String settlementType) async {
     final noteCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1037,6 +1163,7 @@ class _RaiseSettlementTabState extends ConsumerState<_RaiseSettlementTab> {
       await dio.post(Endpoints.salesmanRaiseSettlement, data: {
         if (noteCtrl.text.isNotEmpty) 'note': noteCtrl.text.trim(),
         'request_ids': ids,
+        'settlement_type': settlementType,
       });
       ref.invalidate(salesmanApprovedCollectionsProvider);
       ref.invalidate(salesmanDashboardProvider);
@@ -1053,6 +1180,105 @@ class _RaiseSettlementTabState extends ConsumerState<_RaiseSettlementTab> {
             content: Text(e.response?.data['error'] ?? 'Failed to raise settlement')));
       }
     }
+  }
+}
+
+// ── Raise tab sub-widgets ─────────────────────────────────────────────────────
+
+class _RaiseSectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final double total;
+  final Color color;
+  final VoidCallback onRaiseAll;
+  const _RaiseSectionHeader({
+    required this.icon, required this.label, required this.total,
+    required this.color, required this.onRaiseAll,
+  });
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    Icon(icon, size: 16, color: color),
+    const SizedBox(width: 6),
+    Expanded(child: Text(label,
+        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color))),
+    Text('₹${total.toStringAsFixed(0)}',
+        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
+    const SizedBox(width: 8),
+    OutlinedButton(
+      onPressed: onRaiseAll,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color, side: BorderSide(color: color),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: const TextStyle(fontSize: 11),
+      ),
+      child: const Text('Raise All'),
+    ),
+  ]);
+}
+
+class _RaiseItemTile extends StatelessWidget {
+  final Map<String, dynamic> request;
+  final bool selected;
+  final Color color;
+  final ValueChanged<bool> onToggle;
+  const _RaiseItemTile({
+    required this.request, required this.selected,
+    required this.color, required this.onToggle,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final amount   = (request['amount'] as num).toDouble();
+    final customer = request['customer_name'] as String? ?? '';
+    final date     = (request['resolved_at'] ?? request['created_at'] as String).toString().substring(0, 10);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      color: selected ? color.withValues(alpha: 0.07) : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: selected ? color : Colors.grey.shade200),
+      ),
+      child: CheckboxListTile(
+        value: selected,
+        activeColor: color,
+        controlAffinity: ListTileControlAffinity.leading,
+        onChanged: (v) => onToggle(v ?? false),
+        title: Text('₹${amount.toStringAsFixed(0)}',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        subtitle: Text('$customer  •  $date',
+            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ),
+    );
+  }
+}
+
+class _RaiseSelectionButton extends StatelessWidget {
+  final Set<int> selected;
+  final List<Map<String, dynamic>> items;
+  final Color color;
+  final String type;
+  final void Function(List<int> ids, double total) onRaise;
+  const _RaiseSelectionButton({
+    required this.selected, required this.items, required this.color,
+    required this.type, required this.onRaise,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final selectedItems = items.where((r) => selected.contains(r['id'] as int)).toList();
+    final total = selectedItems.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        icon: const Icon(Icons.send_to_mobile, size: 16),
+        label: Text('Raise ${selected.length} selected — ₹${total.toStringAsFixed(0)}'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color, foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          textStyle: const TextStyle(fontSize: 13),
+        ),
+        onPressed: () => onRaise(selected.toList(), total),
+      ),
+    );
   }
 }
 
@@ -1102,8 +1328,13 @@ class _SettlementRequestCard extends StatelessWidget {
     final note        = s['note'] as String?;
     final ackedBy     = s['acknowledged_by_name'] as String?;
     final isAcked     = ackedBy != null;
-    // acknowledged time comes from salesman_settlements.settled_by being set
-    // we can use created_at as raised time; no separate acked timestamp stored
+    final settlementType = s['settlement_type'] as String? ?? 'cash';
+    final typeLabel   = settlementType == 'credit_advance' ? 'Credit Advance Repayment'
+        : settlementType == 'mixed' ? 'Mixed (Cash + Credit)'
+        : 'Cash Collection';
+    final typeColor   = settlementType == 'credit_advance' ? Colors.indigo
+        : settlementType == 'mixed' ? Colors.deepPurple
+        : const Color(0xFF1565C0);
     final ackedAt     = isAcked && (s['updated_at'] as String?) != null
         ? (s['updated_at'] as String).substring(0, 16).replaceAll('T', ' ')
         : null;
@@ -1121,8 +1352,21 @@ class _SettlementRequestCard extends StatelessWidget {
               color: isAcked ? Colors.green : Colors.orange, size: 22),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('₹${amount.toStringAsFixed(0)}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            Row(children: [
+              Text('₹${amount.toStringAsFixed(0)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: typeColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: typeColor.withValues(alpha: 0.3)),
+                ),
+                child: Text(typeLabel,
+                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: typeColor)),
+              ),
+            ]),
             Text(isAcked ? 'Acknowledged by $ackedBy' : 'Pending admin acknowledgement',
                 style: TextStyle(
                     fontSize: 12,
@@ -1146,6 +1390,93 @@ class _SettlementRequestCard extends StatelessWidget {
               ]),
             ],
           ])),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Credit Advance Card ───────────────────────────────────────────────────────
+
+class _CreditAdvanceStateHeader extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _CreditAdvanceStateHeader({required this.label, required this.color});
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: color.withValues(alpha: 0.3)),
+    ),
+    child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+  );
+}
+
+class _CreditAdvanceCard extends StatelessWidget {
+  final Map<String, dynamic> advance;
+  final VoidCallback? onMarkPaid;
+  final Color stateColor;
+  const _CreditAdvanceCard({
+    required this.advance,
+    required this.onMarkPaid,
+    this.stateColor = Colors.indigo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name      = advance['user_name'] as String? ?? '';
+    final phone     = advance['user_phone'] as String? ?? '';
+    final amount    = (advance['amount'] as num).toDouble();
+    final note      = advance['admin_note'] as String?;
+    final paid      = (advance['payment_received'] as int? ?? 0) == 1;
+    final createdAt = (advance['created_at'] as String).substring(0, 10);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: stateColor.withValues(alpha: 0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.add_card_outlined, size: 16, color: stateColor),
+            const SizedBox(width: 8),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              Text('+91 $phone', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            ])),
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text('₹${amount.toStringAsFixed(0)}',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: stateColor)),
+            ]),
+          ]),
+          if (note != null && note.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(note, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+          const SizedBox(height: 4),
+          Text('Given on $createdAt', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          if (!paid && onMarkPaid != null) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.payments_outlined, size: 15),
+                label: const Text('Mark Payment Received'),
+                onPressed: onMarkPaid,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: stateColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  textStyle: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ),
+          ],
         ]),
       ),
     );
@@ -1441,12 +1772,22 @@ class _CustomerTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final id      = customer['id'] as int;
-    final name    = customer['name'] as String;
-    final phone   = customer['phone'] as String;
-    final balance = (customer['wallet_balance'] as num).toDouble();
-    final email   = customer['email'] as String?;
+    final id       = customer['id'] as int;
+    final name     = customer['name'] as String;
+    final phone    = customer['phone'] as String;
+    final balance  = (customer['wallet_balance'] as num).toDouble();
+    final email    = customer['email'] as String?;
+    final tierName = customer['tier_name'] as String?;
+    final tierColor = customer['tier_color'] as String?;
+    final creditLimit = customer['max_wallet_negative_limit'] as num?;
     final isLow = balance < 0;
+
+    Color? parsedTierColor;
+    if (tierColor != null && tierColor.isNotEmpty) {
+      try {
+        parsedTierColor = Color(int.parse(tierColor.replaceFirst('#', '0xFF')));
+      } catch (_) {}
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1496,7 +1837,27 @@ class _CustomerTile extends ConsumerWidget {
                 const SizedBox(width: 6),
                 Text('Low balance', style: TextStyle(fontSize: 10, color: Colors.red.shade600)),
               ],
+              if (tierName != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: (parsedTierColor ?? Colors.indigo).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: (parsedTierColor ?? Colors.indigo).withValues(alpha: 0.4)),
+                  ),
+                  child: Text(tierName,
+                      style: TextStyle(
+                          fontSize: 10, fontWeight: FontWeight.bold,
+                          color: parsedTierColor ?? Colors.indigo)),
+                ),
+              ],
             ]),
+            if (creditLimit != null && creditLimit != 0) ...[
+              const SizedBox(height: 3),
+              Text('Credit limit: ₹${creditLimit.toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 10, color: Colors.grey)),
+            ],
           ])),
 
           // Actions
@@ -1515,6 +1876,12 @@ class _CustomerTile extends ConsumerWidget {
                 if (placed == true) onRefresh();
               },
             ),
+            // Credit advance
+            IconButton(
+              icon: const Icon(Icons.add_card_outlined, color: Color(0xFF2E7D32), size: 20),
+              tooltip: 'Credit Advance',
+              onPressed: () => _showCreditAdvanceDialog(context, ref, id, name, onRefresh),
+            ),
             // Reset password
             IconButton(
               icon: const Icon(Icons.lock_reset, color: Colors.orange, size: 20),
@@ -1523,6 +1890,63 @@ class _CustomerTile extends ConsumerWidget {
             ),
           ]),
         ]),
+      ),
+    );
+  }
+
+  void _showCreditAdvanceDialog(BuildContext ctx, WidgetRef ref, int id, String name, VoidCallback onRefresh) {
+    final amtCtrl  = TextEditingController();
+    final noteCtrl = TextEditingController();
+    showDialog(
+      context: ctx,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('Credit Advance: $name'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Give wallet credit before payment. Customer pays later.', style: TextStyle(fontSize: 13, color: Colors.grey)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: amtCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            decoration: const InputDecoration(
+                labelText: 'Amount (₹) *', prefixText: '₹ ', border: OutlineInputBorder(), isDense: true),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: noteCtrl,
+            decoration: const InputDecoration(
+                labelText: 'Note (optional)', border: OutlineInputBorder(), isDense: true),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final amount = double.tryParse(amtCtrl.text.trim());
+              if (amount == null || amount <= 0) return;
+              try {
+                final dio = ref.read(dioProvider);
+                await dio.post(Endpoints.salesmanCreditAdvance, data: {
+                  'user_id': id,
+                  'amount': amount,
+                  if (noteCtrl.text.trim().isNotEmpty) 'note': noteCtrl.text.trim(),
+                });
+                if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                    content: Text('₹${amount.toStringAsFixed(0)} credit advance given to $name ✅'),
+                    backgroundColor: const Color(0xFF2E7D32),
+                  ));
+                }
+                onRefresh();
+              } catch (e) {
+                if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            child: const Text('Give Credit'),
+          ),
+        ],
       ),
     );
   }
@@ -1626,11 +2050,11 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
 
     // Extract data outside when() so filter strip never loses state
     final d = historyAsync.value;
-    final completed   = (d?['completed_orders']   as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final cancelled   = (d?['cancelled_orders']   as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final collections = (d?['approved_collections'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final approvedOrders = (d?['approved_orders']    as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final settlements = (d?['settlements'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final completed      = (d?['completed_orders']    as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final inProgress     = (d?['in_progress_orders']  as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final cancelled      = (d?['cancelled_orders']    as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final collections    = (d?['approved_collections'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final settlements    = (d?['settlements'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     final totalDelivered = completed.fold<double>(0, (s, o) => s + (o['final_amount'] as num).toDouble());
     final totalCollected = collections.fold<double>(0, (s, o) => s + (o['amount'] as num).toDouble());
 
@@ -1660,7 +2084,7 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
           Row(children: [
             _SummaryPill('✅ ${completed.length}', '₹${totalDelivered.toStringAsFixed(0)}', const Color(0xFF2E7D32)),
             const SizedBox(width: 6),
-            _SummaryPill('📋 ${approvedOrders.length}', 'approved', Colors.indigo),
+            _SummaryPill('🚚 ${inProgress.length}', 'in progress', Colors.blue),
             const SizedBox(width: 6),
             _SummaryPill('❌ ${cancelled.length}', 'cancelled', Colors.red),
             const SizedBox(width: 6),
@@ -1676,7 +2100,7 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
               const SizedBox(width: 6),
               _HChip('✅ Delivered', _section == 'delivered', () => setState(() => _section = 'delivered'), color: const Color(0xFF2E7D32)),
               const SizedBox(width: 6),
-              _HChip('📋 Approved', _section == 'approved', () => setState(() => _section = 'approved'), color: Colors.indigo),
+              _HChip('🚚 In Progress', _section == 'inprogress', () => setState(() => _section = 'inprogress'), color: Colors.blue),
               const SizedBox(width: 6),
               _HChip('❌ Cancelled', _section == 'cancelled', () => setState(() => _section = 'cancelled'), color: Colors.red),
               const SizedBox(width: 6),
@@ -1738,12 +2162,12 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
           data: (_) => RefreshIndicator(
             onRefresh: () async => ref.invalidate(salesmanHistoryProvider(_providerKey)),
             child: ListView(padding: const EdgeInsets.all(14), children: [
-              if (_section == 'all' || _section == 'approved') ...[
-                _SectionHeader('Approved Orders', approvedOrders.length, Colors.indigo),
+              if (_section == 'all' || _section == 'inprogress') ...[
+                _SectionHeader('In Progress', inProgress.length, Colors.blue),
                 const SizedBox(height: 8),
-                approvedOrders.isEmpty
-                    ? _Empty('No approved orders in this period')
-                    : Column(children: approvedOrders.map((o) => _ApprovedOrderTile(order: o)).toList()),
+                inProgress.isEmpty
+                    ? _Empty('No in-progress orders in this period')
+                    : Column(children: inProgress.map((o) => _ApprovedOrderTile(order: o)).toList()),
                 const SizedBox(height: 20),
               ],
               if (_section == 'all' || _section == 'delivered') ...[
@@ -2026,7 +2450,7 @@ class _ApprovedOrderTile extends StatelessWidget {
   Color _statusColor(String s) => switch (s) {
     'delivered'  => const Color(0xFF2E7D32),
     'cancelled'  => Colors.red,
-    'dispatched' => Colors.blue,
+    'dispatched' || 'picked' => Colors.blue,
     'assigned'   => Colors.indigo,
     'confirmed'  => const Color(0xFF0277BD),
     _ => Colors.orange,
@@ -2035,7 +2459,7 @@ class _ApprovedOrderTile extends StatelessWidget {
   IconData _statusIcon(String s) => switch (s) {
     'delivered'  => Icons.done_all,
     'cancelled'  => Icons.cancel_outlined,
-    'dispatched' => Icons.local_shipping_outlined,
+    'dispatched' || 'picked' => Icons.local_shipping_outlined,
     'assigned'   => Icons.person_pin,
     'confirmed'  => Icons.check_circle_outline,
     _ => Icons.hourglass_empty,
@@ -2050,7 +2474,9 @@ class _ApprovedOrderTile extends StatelessWidget {
     final addrLine      = order['address_line'] as String? ?? '';
     final deliveryDate  = order['delivery_date'] as String? ?? '';
     final amount        = (order['final_amount'] as num).toDouble();
-    final status        = order['status'] as String? ?? '';
+    final status        = (order['delivery_status'] as String?)?.isNotEmpty == true
+        ? order['delivery_status'] as String
+        : order['status'] as String? ?? '';
     final isPickup      = order['order_type'] == 'pickup';
     final assignedAt    = order['assigned_at'] as String?;
 
@@ -2255,7 +2681,7 @@ class _DeliveryOrderCard extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => context.push('/orders/$orderId'),
+        onTap: () => context.push('/salesman/orders/$orderId'),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2341,13 +2767,50 @@ class _DeliveryOrderCard extends ConsumerWidget {
             );
           }),
           const SizedBox(height: 12),
+          // Customer confirmed in-app indicator
+          if (!isPickup && order['customer_confirmed_at'] != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade300),
+                ),
+                child: const Row(children: [
+                  Icon(Icons.verified_outlined, color: Colors.green, size: 16),
+                  SizedBox(width: 8),
+                  Text('Customer confirmed receipt in app — no code needed',
+                      style: TextStyle(fontSize: 12, color: Colors.green)),
+                ]),
+              ),
+            ),
+          if (!isPickup)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.map_outlined, size: 15),
+                  label: const Text('Track on Map'),
+                  onPressed: () => context.push('/salesman/track/$orderId'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF2E7D32),
+                    side: const BorderSide(color: Color(0xFF2E7D32)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ),
+            ),
           Row(children: [
             if (isPickup && status == 'assigned') ...[
               Expanded(
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.open_in_new, size: 16),
                   label: const Text('Open & Mark Collected'),
-                  onPressed: () => context.push('/orders/$orderId'),
+                  onPressed: () => context.push('/salesman/orders/$orderId'),
                   style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.teal, foregroundColor: Colors.white),
                 ),
@@ -2368,7 +2831,7 @@ class _DeliveryOrderCard extends ConsumerWidget {
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.open_in_new, size: 16),
                   label: const Text('Open & Mark Delivered'),
-                  onPressed: () => context.push('/orders/$orderId'),
+                  onPressed: () => context.push('/salesman/orders/$orderId'),
                   style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
                 ),

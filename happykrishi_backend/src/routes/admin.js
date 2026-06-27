@@ -33,9 +33,7 @@ router.put('/orders/:id/status', c.updateOrderStatus);
 router.post('/orders/:id/assign', c.assignAgent);
 router.put('/orders/:id/items', c.updateOrderItemWeights);
 router.post('/orders/:id/mark-collected', c.markPickupCollected);
-router.get('/agents', c.getAgents);
-router.post('/agents', requireRole('admin'), c.createAgent);
-router.put('/agents/:id/toggle', requireRole('admin'), c.toggleAgent);
+router.post('/orders/:id/waive-delivery', c.waiveDeliveryCharge);
 router.get('/products', c.adminListProducts);
 router.get('/users', c.listUsers);
 router.post('/users', requireRole('admin'), c.createCustomer);
@@ -43,7 +41,9 @@ router.put('/users/:id/toggle', requireRole('admin'), c.toggleCustomer);
 router.put('/users/:id', requireRole('admin'), c.updateCustomer);
 router.post('/users/:id/reset-password', requireRole('admin'), c.resetCustomerPassword);
 router.get('/users/:id/wallet-history', c.getCustomerWalletHistory);
+router.post('/users/:id/force-logout', requireRole('admin'), c.forceLogout);
 router.get('/wallet-audit', c.getAllWalletTransactions);
+router.get('/wallet-audit/summary', c.getWalletTransactionsSummary);
 router.get('/customers/:id/addresses', (req, res) => {
   const db = require('../config/database');
   const addresses = db.prepare('SELECT * FROM addresses WHERE user_id = ? ORDER BY is_default DESC, id ASC').all(parseInt(req.params.id));
@@ -52,8 +52,11 @@ router.get('/customers/:id/addresses', (req, res) => {
 router.post('/wallet/credit', requireRole('admin'), c.creditWallet);
 router.post('/wallet/debit', requireRole('admin'), c.debitWallet);
 router.get('/topup-requests', c.listTopupRequests);
+router.get('/credit-advances', c.listCreditAdvances);
 router.post('/topup-requests/:id/approve', requireRole('admin'), c.approveTopup);
 router.post('/topup-requests/:id/reject', requireRole('admin'), c.rejectTopup);
+router.post('/topup-requests/credit-advance', requireRole('admin'), c.creditTopupAdmin);
+router.post('/topup-requests/:id/mark-paid', requireRole('admin'), c.markCreditTopupPaid);
 router.get('/config', c.getConfig);
 router.put('/config', requireRole('admin'), c.updateConfig);
 
@@ -66,6 +69,8 @@ router.put('/salesmen/:id/reset-password', requireRole('admin'), sc.resetSalesma
 router.get('/salesman-summary', sc.getSalesmanSummary);
 router.post('/salesman-settle', requireRole('admin'), sc.settleSalesman);
 router.post('/salesman-settlements/:id/acknowledge', requireRole('admin'), sc.acknowledgeSettlement);
+router.post('/salesmen/:id/force-logout', requireRole('admin'), c.forceLogout);
+router.post('/salesmen/:id/raise-settlement', requireRole('admin'), c.raiseSettlementForSalesman);
 
 // Upload UPI QR code image
 router.post('/upload-qr', requireRole('admin'), qrUpload.single('qr_image'), (req, res) => {
@@ -148,11 +153,20 @@ router.post('/rewards/reject', requireRole('admin'), rc.rejectPayouts);
 router.get('/rewards/payouts', rc.listPayouts);
 router.get('/rewards/products-and-categories', rc.getProductsForRules);
 
+// Referrals
+router.get('/referrals', c.listReferrals);
+router.post('/referrals/generate', requireRole('admin', 'subadmin'), c.adminGenerateReferral);
+router.post('/referrals/generic', requireRole('admin', 'subadmin'), c.adminCreateGenericCode);
+router.put('/referrals/generic/:id', requireRole('admin', 'subadmin'), c.adminUpdateGenericCode);
+router.delete('/referrals/generic/:id', requireRole('admin', 'subadmin'), c.adminDeleteGenericCode);
+
 // Customer tiers
 router.get('/tiers', tc.listTiers);
 router.post('/tiers', requireRole('admin'), tc.createTier);
 router.put('/tiers/:id', requireRole('admin'), tc.updateTier);
 router.delete('/tiers/:id', requireRole('admin'), tc.deleteTier);
 router.patch('/customers/:id/tier', requireRole('admin'), tc.assignTier);
+
+router.get('/agents/locations', c.getAgentLocations);
 
 module.exports = router;

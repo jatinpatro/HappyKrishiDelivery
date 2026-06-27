@@ -108,7 +108,20 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> {
       final user = AppUser.fromJson(res.data['user']);
       final isNew = res.data['is_new'] == true;
       final needsPassword = res.data['needs_password'] == true;
+      final referralCredited = res.data['referral_credited'] is num
+          ? (res.data['referral_credited'] as num).toDouble()
+          : null;
       ref.read(authStateProvider.notifier).setUserFromToken(token, user);
+      if (!mounted) return;
+
+      // Show referral bonus snackbar for new customers with auto-credited invite
+      if (isNew && referralCredited != null && referralCredited > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('🎉 Welcome bonus! ₹${referralCredited.toStringAsFixed(0)} added to your wallet from your invite.'),
+          backgroundColor: const Color(0xFF2E7D32),
+          duration: const Duration(seconds: 4),
+        ));
+      }
       if (!mounted) return;
 
       final isAdmin = user.role == 'admin' || user.role == 'subadmin';

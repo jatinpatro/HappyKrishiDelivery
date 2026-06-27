@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const notificationService = require('../services/notificationService');
 
 function issueToken(user) {
-  return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
+  return jwt.sign({ id: user.id, role: user.role, tv: user.token_version ?? 0 }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '30d',
   });
 }
@@ -100,6 +100,28 @@ function updateSalesman(req, res) {
 
 // ── Cash summary ──────────────────────────────────────────────────────────────
 function getSalesmanSummary(req, res) {
+  const { date_from, date_to, salesman, approved_by, search } = req.query;
+
+  // Date/salesman filter conditions
+  const dateFilter = (alias) => {
+    let c = '';
+    if (date_from) c += ` AND date(${alias}.created_at) >= '${date_from}'`;
+    if (date_to)   c += ` AND date(${alias}.created_at) <= '${date_to}'`;
+    return c;
+  };
+  const salesmanFilter = salesman
+    ? ` AND CAST(tr.collected_by AS INTEGER) IN (SELECT id FROM users WHERE name LIKE '%${salesman.replace(/'/g,'')}%' AND role='salesman')`
+    : '';
+  const approvedByFilter = approved_by === 'admin' ? ` AND tr.approved_by_role = 'admin'`
+    : approved_by === 'salesman' ? ` AND tr.approved_by_role = 'salesman'`
+    : '';
+  const searchFilter = search
+    ? ` AND (u.name LIKE '%${search.replace(/'/g,'')}%' OR u.phone LIKE '%${search.replace(/'/g,'')}%' OR CAST(tr.amount AS TEXT) LIKE '%${search.replace(/'/g,'')}%')`
+    : '';
+  const searchFilterCu = search
+    ? ` AND (cu.name LIKE '%${search.replace(/'/g,'')}%' OR cu.phone LIKE '%${search.replace(/'/g,'')}%' OR CAST(tr.amount AS TEXT) LIKE '%${search.replace(/'/g,'')}%')`
+    : '';
+
   // Approved cash NOT yet settled — individual requests per customer
   const collected = db.prepare(`
     SELECT tr.*, u.name as customer_name, u.phone as customer_phone,
@@ -109,7 +131,38 @@ function getSalesmanSummary(req, res) {
     LEFT JOIN users s ON s.id = CAST(tr.collected_by AS INTEGER)
     WHERE tr.payment_method='cash' AND tr.status='approved' AND tr.settled_at IS NULL
       AND tr.settlement_id IS NULL
+      ${dateFilter('tr')}${salesmanFilter}${approvedByFilter}${searchFilter}
     ORDER BY tr.resolved_at DESC
+  `).all();
+
+  // Individual collection items — pending cash + approved-not-raised cash + credit advance repayments not raised
+  const collectionItems = db.prepare(`
+    SELECT tr.*,
+           cu.name  as customer_name,
+           cu.phone as customer_phone,
+           COALESCE(sm.name, tr.collected_by) as salesman_name,
+           sm.phone as salesman_phone,
+           ab.name  as approved_by_name,
+           ss.settled_by as settlement_acknowledged
+    FROM topup_requests tr
+    JOIN  users cu ON cu.id = tr.user_id
+    LEFT JOIN users sm ON sm.id = CAST(tr.collected_by AS INTEGER)
+    LEFT JOIN users ab ON ab.id = tr.approved_by_id
+    LEFT JOIN salesman_settlements ss ON ss.id = tr.settlement_id
+    WHERE tr.collected_by IS NOT NULL
+      AND (
+        -- Cash: pending approval or approved but not raised
+        (tr.payment_method = 'cash' AND tr.status IN ('pending','approved')
+          AND (tr.status = 'pending' OR (tr.settlement_id IS NULL AND tr.settled_at IS NULL)))
+        OR
+        -- Credit advance: customer paid salesman, salesman hasn't raised it yet
+        (tr.payment_method = 'credit_advance' AND tr.payment_received = 1
+          AND (tr.paid_by_role IS NULL OR tr.paid_by_role = 'salesman')
+          AND tr.settlement_id IS NULL AND tr.settled_at IS NULL)
+      )
+      ${dateFilter('tr')}${salesmanFilter}${approvedByFilter}${searchFilterCu}
+    ORDER BY tr.created_at DESC
+    LIMIT 200
   `).all();
 
   // Settlement requests raised by salesmen — pending admin acknowledgement
@@ -118,6 +171,9 @@ function getSalesmanSummary(req, res) {
     FROM salesman_settlements ss
     LEFT JOIN users u ON u.id = ss.settled_by
     WHERE ss.settled_by IS NULL
+      ${date_from ? `AND date(ss.created_at) >= '${date_from}'` : ''}
+      ${date_to   ? `AND date(ss.created_at) <= '${date_to}'`   : ''}
+      ${salesman  ? `AND ss.salesman_name LIKE '%${salesman.replace(/'/g,'')}%'` : ''}
     ORDER BY ss.created_at DESC
   `).all();
 
@@ -125,7 +181,10 @@ function getSalesmanSummary(req, res) {
     SELECT ss.*, u.name as settled_by_name FROM salesman_settlements ss
     LEFT JOIN users u ON u.id=ss.settled_by
     WHERE ss.settled_by IS NOT NULL
-    ORDER BY ss.created_at DESC LIMIT 50
+      ${date_from ? `AND date(ss.created_at) >= '${date_from}'` : ''}
+      ${date_to   ? `AND date(ss.created_at) <= '${date_to}'`   : ''}
+      ${salesman  ? `AND ss.salesman_name LIKE '%${salesman.replace(/'/g,'')}%'` : ''}
+    ORDER BY ss.created_at DESC LIMIT 200
   `).all();
 
   const pending = db.prepare(`
@@ -138,7 +197,7 @@ function getSalesmanSummary(req, res) {
     ORDER BY tr.created_at DESC
   `).all();
 
-  res.json({ collected, raised_settlements: raisedSettlements, settlements, pending });
+  res.json({ collected, collection_items: collectionItems, raised_settlements: raisedSettlements, settlements, pending });
 }
 
 // ── Acknowledge a salesman-raised settlement ──────────────────────────────────
@@ -240,7 +299,8 @@ function salesmanHistory(req, res) {
     )` : '';
   const sp = search ? [like, like, like, like, like] : [];
 
-  const completedOrders = agentRow ? db.prepare(`
+  // Completed orders: via delivery_agents OR via orders.salesman_id
+  const completedByAgent = agentRow ? db.prepare(`
     SELECT o.*, d.id as delivery_id, d.delivered_at,
            cu.name as customer_name, cu.wallet_balance as customer_wallet_balance,
            a.city, s.label as slot_label
@@ -255,6 +315,28 @@ function salesmanHistory(req, res) {
     ORDER BY d.delivered_at DESC
   `).all(agentRow.id, dateFrom, dateTo, ...sp) : [];
 
+  const completedBySalesman = db.prepare(`
+    SELECT o.*, d.id as delivery_id, d.delivered_at,
+           cu.name as customer_name, cu.wallet_balance as customer_wallet_balance,
+           a.city, s.label as slot_label
+    FROM orders o
+    JOIN deliveries d ON d.order_id = o.id
+    JOIN users cu ON cu.id = o.user_id
+    LEFT JOIN addresses a ON a.id = o.address_id
+    LEFT JOIN delivery_slots s ON s.id = o.slot_id
+    WHERE o.salesman_id = ? AND d.agent_id IS NULL AND d.status = 'delivered'
+      AND date(d.delivered_at) >= ? AND date(d.delivered_at) <= ?
+      ${orderSearchClause}
+    ORDER BY d.delivered_at DESC
+  `).all(userId, dateFrom, dateTo, ...sp);
+
+  const seenCompleted = new Set();
+  const completedOrders = [...completedByAgent, ...completedBySalesman].filter(o => {
+    if (seenCompleted.has(o.id)) return false;
+    seenCompleted.add(o.id);
+    return true;
+  });
+
   const completedWithItems = completedOrders.map(o => ({
     ...o,
     items: db.prepare(`
@@ -264,7 +346,8 @@ function salesmanHistory(req, res) {
     `).all(o.id),
   }));
 
-  const cancelledOrders = agentRow ? db.prepare(`
+  // Cancelled orders: via delivery_agents OR via orders.salesman_id
+  const cancelledByAgent = agentRow ? db.prepare(`
     SELECT o.*, d.id as delivery_id, d.assigned_at,
            cu.name as customer_name, cu.phone as customer_phone,
            cu.wallet_balance as customer_wallet_balance,
@@ -279,6 +362,29 @@ function salesmanHistory(req, res) {
       ${orderSearchClause}
     ORDER BY o.updated_at DESC
   `).all(agentRow.id, dateFrom, dateTo, ...sp) : [];
+
+  const cancelledBySalesman = db.prepare(`
+    SELECT o.*, d.id as delivery_id, d.assigned_at,
+           cu.name as customer_name, cu.phone as customer_phone,
+           cu.wallet_balance as customer_wallet_balance,
+           a.city, a.address_line, s.label as slot_label
+    FROM orders o
+    JOIN deliveries d ON d.order_id = o.id
+    JOIN users cu ON cu.id = o.user_id
+    LEFT JOIN addresses a ON a.id = o.address_id
+    LEFT JOIN delivery_slots s ON s.id = o.slot_id
+    WHERE o.salesman_id = ? AND d.agent_id IS NULL AND o.status = 'cancelled'
+      AND date(o.updated_at) >= ? AND date(o.updated_at) <= ?
+      ${orderSearchClause}
+    ORDER BY o.updated_at DESC
+  `).all(userId, dateFrom, dateTo, ...sp);
+
+  const seenCancelled = new Set();
+  const cancelledOrders = [...cancelledByAgent, ...cancelledBySalesman].filter(o => {
+    if (seenCancelled.has(o.id)) return false;
+    seenCancelled.add(o.id);
+    return true;
+  });
 
   const approvedCollections = db.prepare(`
     SELECT tr.*, u.name as customer_name FROM topup_requests tr
@@ -296,8 +402,8 @@ function salesmanHistory(req, res) {
     ORDER BY created_at DESC
   `).all(name, dateFrom, dateTo);
 
-  // All orders this salesman approved (confirmed by them, any resulting status)
-  const approvedOrders = agentRow ? db.prepare(`
+  // In-progress orders: assigned / picked (dispatched) — not yet delivered or cancelled
+  const inProgressByAgent = agentRow ? db.prepare(`
     SELECT o.*, d.id as delivery_id, d.assigned_at, d.status as delivery_status,
            cu.name as customer_name, cu.phone as customer_phone,
            cu.wallet_balance as customer_wallet_balance,
@@ -307,18 +413,41 @@ function salesmanHistory(req, res) {
     JOIN users cu ON cu.id = o.user_id
     LEFT JOIN addresses a ON a.id = o.address_id
     LEFT JOIN delivery_slots s ON s.id = o.slot_id
-    WHERE d.agent_id = ? AND o.status != 'pending'
+    WHERE d.agent_id = ? AND d.status IN ('assigned','picked')
       AND date(d.assigned_at) >= ? AND date(d.assigned_at) <= ?
       ${orderSearchClause}
     ORDER BY d.assigned_at DESC
   `).all(agentRow.id, dateFrom, dateTo, ...sp) : [];
 
+  const inProgressBySalesman = db.prepare(`
+    SELECT o.*, d.id as delivery_id, d.assigned_at, d.status as delivery_status,
+           cu.name as customer_name, cu.phone as customer_phone,
+           cu.wallet_balance as customer_wallet_balance,
+           a.city, a.address_line, s.label as slot_label
+    FROM orders o
+    JOIN deliveries d ON d.order_id = o.id
+    JOIN users cu ON cu.id = o.user_id
+    LEFT JOIN addresses a ON a.id = o.address_id
+    LEFT JOIN delivery_slots s ON s.id = o.slot_id
+    WHERE o.salesman_id = ? AND d.agent_id IS NULL AND d.status IN ('assigned','picked')
+      AND date(d.assigned_at) >= ? AND date(d.assigned_at) <= ?
+      ${orderSearchClause}
+    ORDER BY d.assigned_at DESC
+  `).all(userId, dateFrom, dateTo, ...sp);
+
+  const seenInProgress = new Set();
+  const inProgressOrders = [...inProgressByAgent, ...inProgressBySalesman].filter(o => {
+    if (seenInProgress.has(o.id)) return false;
+    seenInProgress.add(o.id);
+    return true;
+  });
+
   res.json({
     date_from: dateFrom,
     date_to: dateTo,
     completed_orders: completedWithItems,
+    in_progress_orders: inProgressOrders,
     cancelled_orders: cancelledOrders,
-    approved_orders: approvedOrders,
     approved_collections: approvedCollections,
     settlements,
   });
@@ -342,6 +471,7 @@ function salesmanDashboard(req, res) {
     SELECT tr.*, u.name as customer_name FROM topup_requests tr
     JOIN users u ON u.id=tr.user_id
     WHERE CAST(tr.collected_by AS INTEGER)=? AND tr.status='approved'
+      AND tr.payment_method != 'credit_advance'
       AND tr.settlement_id IS NULL AND tr.settled_at IS NULL
     ORDER BY tr.created_at DESC
   `).all(userId);
@@ -351,6 +481,7 @@ function salesmanDashboard(req, res) {
     SELECT tr.*, u.name as customer_name FROM topup_requests tr
     JOIN users u ON u.id=tr.user_id
     WHERE CAST(tr.collected_by AS INTEGER)=? AND tr.status='approved'
+      AND tr.payment_method != 'credit_advance'
       AND tr.settlement_id IS NOT NULL AND tr.settled_at IS NULL
     ORDER BY tr.created_at DESC
   `).all(userId);
@@ -360,6 +491,7 @@ function salesmanDashboard(req, res) {
     SELECT tr.*, u.name as customer_name FROM topup_requests tr
     JOIN users u ON u.id=tr.user_id
     WHERE CAST(tr.collected_by AS INTEGER)=? AND tr.status='approved'
+      AND tr.payment_method != 'credit_advance'
       AND tr.settled_at IS NOT NULL
     ORDER BY tr.settled_at DESC LIMIT 20
   `).all(userId);
@@ -368,12 +500,29 @@ function salesmanDashboard(req, res) {
     'SELECT * FROM salesman_settlements WHERE salesman_name=? ORDER BY created_at DESC LIMIT 10'
   ).all(name);
 
-  // Delivery orders
+  // Delivery orders — via delivery_agents (old flow) OR salesman_id (new flow)
   const agentRow = db.prepare('SELECT id FROM delivery_agents WHERE user_id=?').get(userId);
-  const assignedOrders = agentRow ? db.prepare(`
-    SELECT o.*, d.id as delivery_id, d.status as delivery_status,
+
+  // Orders assigned via salesman_id on orders table (admin assigns salesman directly)
+  const salesmanAssigned = db.prepare(`
+    SELECT o.*, d.id as delivery_id, d.status as delivery_status, d.delivery_code, d.customer_confirmed_at,
            cu.name as customer_name, cu.phone as customer_phone,
-           a.address_line, a.city, s.label as slot_label
+           a.address_line, a.city, a.lat as addr_lat, a.lng as addr_lng, s.label as slot_label
+    FROM orders o
+    JOIN users cu ON cu.id = o.user_id
+    LEFT JOIN addresses a ON a.id = o.address_id
+    LEFT JOIN delivery_slots s ON s.id = o.slot_id
+    LEFT JOIN deliveries d ON d.order_id = o.id
+    WHERE o.salesman_id = ? AND o.status IN ('assigned','confirmed','dispatched')
+      AND o.status != 'cancelled'
+    ORDER BY o.delivery_date ASC
+  `).all(userId);
+
+  // Orders assigned via delivery_agents (legacy agent flow)
+  const agentAssigned = agentRow ? db.prepare(`
+    SELECT o.*, d.id as delivery_id, d.status as delivery_status, d.delivery_code, d.customer_confirmed_at,
+           cu.name as customer_name, cu.phone as customer_phone,
+           a.address_line, a.city, a.lat as addr_lat, a.lng as addr_lng, s.label as slot_label
     FROM deliveries d
     JOIN orders o ON o.id = d.order_id
     JOIN users cu ON cu.id = o.user_id
@@ -383,9 +532,22 @@ function salesmanDashboard(req, res) {
     ORDER BY o.delivery_date ASC
   `).all(agentRow.id) : [];
 
-  const completedToday = agentRow ? db.prepare(`
-    SELECT COUNT(*) as c FROM deliveries WHERE agent_id=? AND status='delivered' AND date(delivered_at)=date('now')
-  `).get(agentRow.id) : { c: 0 };
+  // Merge, dedup by order_id (salesman_id takes priority)
+  const seenIds = new Set();
+  const assignedOrders = [...salesmanAssigned, ...agentAssigned].filter(o => {
+    if (seenIds.has(o.id)) return false;
+    seenIds.add(o.id);
+    return true;
+  });
+
+  const completedToday = {
+    c: (agentRow ? db.prepare(`
+      SELECT COUNT(*) as c FROM deliveries WHERE agent_id=? AND status='delivered' AND date(delivered_at)=date('now')
+    `).get(agentRow.id).c : 0)
+    + db.prepare(`
+      SELECT COUNT(*) as c FROM orders WHERE salesman_id=? AND status='delivered' AND date(updated_at)=date('now')
+    `).get(userId).c,
+  };
 
   const assignedWithItems = assignedOrders.map(o => ({
     ...o,
@@ -397,6 +559,17 @@ function salesmanDashboard(req, res) {
 
   // Combined approved list for backward compat
   const approved = [...approvedNotRaised, ...approvedRaisedPending, ...approvedSettled];
+
+  // Credit advances given by this salesman — outstanding (not paid) and recently paid
+  const creditAdvances = db.prepare(`
+    SELECT tr.*, u.name as user_name, u.phone as user_phone
+    FROM topup_requests tr
+    JOIN users u ON u.id = tr.user_id
+    WHERE tr.payment_method = 'credit_advance'
+      AND tr.credited_by_role = 'salesman'
+      AND CAST(tr.credited_by_id AS INTEGER) = ?
+    ORDER BY tr.created_at DESC LIMIT 50
+  `).all(userId);
 
   res.json({
     salesman: name,
@@ -413,6 +586,11 @@ function salesmanDashboard(req, res) {
       not_raised: { items: approvedNotRaised, total: approvedNotRaised.reduce((s,r)=>s+r.amount,0), count: approvedNotRaised.length },
       raised_pending: { items: approvedRaisedPending, total: approvedRaisedPending.reduce((s,r)=>s+r.amount,0), count: approvedRaisedPending.length },
       settled: { items: approvedSettled, total: approvedSettled.reduce((s,r)=>s+r.amount,0), count: approvedSettled.length },
+    },
+    credit_advances: {
+      items: creditAdvances,
+      unpaid: creditAdvances.filter(a => !a.payment_received),
+      unpaid_total: creditAdvances.filter(a => !a.payment_received).reduce((s,r)=>s+r.amount,0),
     },
     settlements,
     assigned_orders: assignedWithItems,
@@ -461,12 +639,15 @@ function getSalesmanPendingOrders(req, res) {
     SELECT o.*, d.id as delivery_id,
            cu.name as customer_name, cu.phone as customer_phone,
            cu.wallet_balance as customer_wallet_balance,
-           a.address_line, a.city, s.label as slot_label
+           a.address_line, a.city, s.label as slot_label,
+           pc.code as coupon_code
     FROM orders o
     JOIN users cu ON cu.id = o.user_id
     LEFT JOIN addresses a ON a.id = o.address_id
     LEFT JOIN delivery_slots s ON s.id = o.slot_id
     LEFT JOIN deliveries d ON d.order_id = o.id
+    LEFT JOIN promo_code_uses pcu ON pcu.order_id = o.id
+    LEFT JOIN promo_codes pc ON pc.id = pcu.promo_code_id
     WHERE ${where}
     ORDER BY o.created_at ASC
   `).all(...params);
@@ -506,9 +687,9 @@ function confirmAndAssignOrder(req, res) {
   db.transaction(() => {
     db.prepare("UPDATE orders SET status='assigned', salesman_id=?, updated_at=datetime('now') WHERE id=?").run(assignToUserId, orderId);
     db.prepare(`
-      UPDATE deliveries SET agent_id=?, status='assigned', assigned_at=datetime('now')
+      UPDATE deliveries SET agent_id=?, status='assigned', assigned_at=datetime('now'), delivery_code=?
       WHERE order_id=?
-    `).run(agentRow.id, orderId);
+    `).run(agentRow.id, String(Math.floor(100000 + Math.random() * 900000)), orderId);
 
     // Apply actual weights if provided (weight-adjusted items)
     if (Array.isArray(actual_weights) && actual_weights.length > 0) {
@@ -523,11 +704,36 @@ function confirmAndAssignOrder(req, res) {
           .run(actualQty, actualTotal, item.id);
       }
       // Recalculate order total from items
-      const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
-      const newSubtotal = items.reduce((s, i) => s + (i.actual_total ?? i.estimated_total), 0);
-      const newFinal = parseFloat((newSubtotal + order.delivery_charge - order.discount_amount).toFixed(2));
-      db.prepare('UPDATE orders SET subtotal=?, final_amount=? WHERE id=?')
-        .run(parseFloat(newSubtotal.toFixed(2)), newFinal, orderId);
+      const updatedItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
+      const newSubtotal = updatedItems.reduce((s, i) => s + (i.actual_total ?? i.estimated_total), 0);
+
+      // Re-evaluate coupon discount on new actual quantities
+      let newDiscount = order.discount_amount || 0;
+      const promoUse = db.prepare('SELECT pcu.*, pc.discount_type, pc.discount_value, pc.max_discount_amount, pc.allowed_product_ids, pc.allowed_category_ids FROM promo_code_uses pcu JOIN promo_codes pc ON pc.id = pcu.promo_code_id WHERE pcu.order_id = ?').get(orderId);
+      if (promoUse) {
+        const allProductIds = updatedItems.map(i => i.product_id);
+        let qualifyingTotal = newSubtotal;
+        if (promoUse.allowed_product_ids) {
+          const allowed = JSON.parse(promoUse.allowed_product_ids).map(Number);
+          qualifyingTotal = updatedItems.filter(i => allowed.includes(i.product_id)).reduce((s, i) => s + (i.actual_total ?? i.estimated_total), 0);
+        } else if (promoUse.allowed_category_ids) {
+          const allowed = JSON.parse(promoUse.allowed_category_ids).map(Number);
+          const cats = db.prepare(`SELECT id,category_id FROM products WHERE id IN (${allProductIds.map(()=>'?').join(',')})`).all(...allProductIds);
+          const qIds = cats.filter(p => allowed.includes(p.category_id)).map(p => p.id);
+          qualifyingTotal = updatedItems.filter(i => qIds.includes(i.product_id)).reduce((s, i) => s + (i.actual_total ?? i.estimated_total), 0);
+        }
+        newDiscount = promoUse.discount_type === 'percent'
+          ? (qualifyingTotal * promoUse.discount_value / 100)
+          : promoUse.discount_value;
+        if (promoUse.max_discount_amount) newDiscount = Math.min(newDiscount, promoUse.max_discount_amount);
+        newDiscount = Math.min(newDiscount, newSubtotal + order.delivery_charge);
+        newDiscount = Math.round(newDiscount * 100) / 100;
+        db.prepare('UPDATE promo_code_uses SET discount_amount = ? WHERE order_id = ?').run(newDiscount, orderId);
+      }
+
+      const newFinal = parseFloat((newSubtotal + order.delivery_charge - newDiscount).toFixed(2));
+      db.prepare('UPDATE orders SET subtotal=?, final_amount=?, discount_amount=? WHERE id=?')
+        .run(parseFloat(newSubtotal.toFixed(2)), newFinal, newDiscount, orderId);
       // Adjust wallet: deduct difference from estimated
       const diff = newFinal - order.final_amount;
       if (Math.abs(diff) > 0.01) {
