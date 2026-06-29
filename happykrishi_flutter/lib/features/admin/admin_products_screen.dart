@@ -33,7 +33,8 @@ final adminProductsProvider =
 
 final categoriesAdminProvider = FutureProvider.autoDispose<List<Category>>((ref) async {
   final dio = ref.read(dioProvider);
-  final res = await dio.get(Endpoints.categories);
+  // Use admin endpoint that returns ALL categories (including inactive)
+  final res = await dio.get(Endpoints.adminCategories);
   return (res.data['categories'] as List).map((e) => Category.fromJson(e)).toList();
 });
 
@@ -1153,14 +1154,35 @@ class _CategoryImageTileState extends ConsumerState<_CategoryImageTile> {
           ],
         ),
       ),
-      title: Text(widget.category.name),
+      title: Text(widget.category.name,
+          style: TextStyle(
+            color: widget.category.isActive ? null : Colors.grey,
+            decoration: widget.category.isActive ? null : TextDecoration.lineThrough,
+          )),
       subtitle: imageUrl != null
           ? const Text('Tap image to change', style: TextStyle(fontSize: 11, color: Colors.grey))
           : const Text('Tap to add image', style: TextStyle(fontSize: 11, color: Colors.orange)),
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-        onPressed: widget.onDelete,
-      ),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        Switch(
+          value: widget.category.isActive,
+          activeThumbColor: AppColors.primary,
+          onChanged: (v) async {
+            try {
+              final dio = ref.read(dioProvider);
+              await dio.patch(Endpoints.toggleCategory(widget.category.id));
+              widget.onImageUploaded(); // reuse refresh callback
+            } catch (e, st) {
+              logError('admin-products', e, st);
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(friendlyError(e))));
+            }
+          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+          onPressed: widget.onDelete,
+        ),
+      ]),
     );
   }
 }

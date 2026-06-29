@@ -11,7 +11,7 @@ function listProducts(req, res) {
   const { category_id, search, page = 1, limit = 20 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
-  let where = 'p.is_active = 1';
+  let where = 'p.is_active = 1 AND (p.category_id IS NULL OR c.is_active = 1)';
   const params = [];
 
   if (category_id) { where += ' AND p.category_id = ?'; params.push(category_id); }
@@ -26,7 +26,11 @@ function listProducts(req, res) {
     LIMIT ? OFFSET ?
   `).all(...params, parseInt(limit), offset);
 
-  const total = db.prepare(`SELECT COUNT(*) as c FROM products p WHERE ${where}`).get(...params).c;
+  const total = db.prepare(`
+    SELECT COUNT(*) as c FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE ${where}
+  `).get(...params).c;
   res.json({ products, total, page: parseInt(page), limit: parseInt(limit) });
 }
 

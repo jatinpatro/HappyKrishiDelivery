@@ -177,6 +177,9 @@ router.put('/tiers/:id', requireRole('admin'), tc.updateTier);
 router.delete('/tiers/:id', requireRole('admin'), tc.deleteTier);
 router.patch('/customers/:id/tier', requireRole('admin'), tc.assignTier);
 
-router.get('/agents/locations', c.getAgentLocations);
+router.get('/categories/all', (req, res) => {
+  const cats = db.prepare('SELECT id, name, name_odia, icon, image_url, sort_order, is_active FROM categories ORDER BY sort_order, name').all();
+  res.json({ categories: cats });
+});
 
 module.exports = router;

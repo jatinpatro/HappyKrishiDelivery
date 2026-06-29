@@ -99,6 +99,8 @@ class Endpoints {
   static String adminProductImage(int id) => '/api/admin/products/$id/image';
   static String adminProductImageUrl(int id) => '/api/admin/products/$id/image-url';
   static String adminCategoryImage(int id) => '/api/admin/categories/$id/image';
+  static String toggleCategory(int id)     => '/api/categories/$id/toggle';
+  static const adminCategories             = '/api/admin/categories/all';
   static const adminUsers = '/api/admin/users';
   static String adminToggleCustomer(int id) => '/api/admin/users/$id/toggle';
   static String adminResetCustomerPassword(int id) => '/api/admin/users/$id/reset-password';

@@ -71,8 +71,9 @@ class Category {
   final String? icon;
   final String? imageUrl;
   final int sortOrder;
+  final bool isActive;
 
-  const Category({required this.id, required this.name, this.nameOdia, this.icon, this.imageUrl, this.sortOrder = 0});
+  const Category({required this.id, required this.name, this.nameOdia, this.icon, this.imageUrl, this.sortOrder = 0, this.isActive = true});
 
   factory Category.fromJson(Map<String, dynamic> j) => Category(
         id: j['id'] as int,
@@ -81,6 +82,7 @@ class Category {
         icon: j['icon'] as String?,
         imageUrl: j['image_url'] as String?,
         sortOrder: j['sort_order'] as int? ?? 0,
+        isActive: _b(j['is_active']),
       );
 }
 
