@@ -96,7 +96,7 @@ router.post('/products/:id/image', requireRole('admin'), productUpload.single('i
   const id = parseInt(req.params.id);
   // Delete old file if it exists and has a different name (e.g. different extension)
   const existing = db.prepare('SELECT image_url FROM products WHERE id=?').get(id);
-  if (existing?.image_url) {
+  if (existing?.image_url && existing.image_url.startsWith('/uploads/')) {
     const oldPath = path.join(__dirname, '../../../uploads', path.basename(existing.image_url));
     if (oldPath !== path.join(__dirname, '../../../', req.file.path)) {
       try { require('fs').unlinkSync(oldPath); } catch (_) {}
@@ -105,6 +105,16 @@ router.post('/products/:id/image', requireRole('admin'), productUpload.single('i
   const imageUrl = `/uploads/${req.file.filename}`;
   db.prepare('UPDATE products SET image_url=? WHERE id=?').run(imageUrl, id);
   res.json({ message: 'Product image uploaded', url: imageUrl,
+    product: db.prepare('SELECT id, name, image_url FROM products WHERE id=?').get(id) });
+});
+
+// Save Firebase Storage image URL (no file upload — URL already uploaded to Firebase)
+router.post('/products/:id/image-url', requireRole('admin'), (req, res) => {
+  const { url } = req.body;
+  if (!url || !url.startsWith('https://')) return res.status(400).json({ error: 'Valid HTTPS URL required' });
+  const id = parseInt(req.params.id);
+  db.prepare('UPDATE products SET image_url=? WHERE id=?').run(url, id);
+  res.json({ message: 'Product image URL saved', url,
     product: db.prepare('SELECT id, name, image_url FROM products WHERE id=?').get(id) });
 });
 

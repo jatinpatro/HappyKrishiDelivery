@@ -1,10 +1,13 @@
+import '../theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
 import '../api/dio_client.dart' show readTokenSync;
 import '../../features/auth/otp_screen.dart';
+import '../../features/auth/staff_login_screen.dart';
 import '../../features/auth/verify_screen.dart';
+import '../../features/auth/verify_email_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/auth/admin_login_screen.dart';
 import '../../features/auth/email_signup_screen.dart';
@@ -82,15 +85,21 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
       GoRoute(path: '/auth/otp', builder: (_, _) => const OtpScreen()),
+      GoRoute(path: '/staff', builder: (_, _) => const StaffLoginScreen()),
       GoRoute(path: '/auth/verify', builder: (_, s) => VerifyScreen(
         phone: s.uri.queryParameters['phone'] ?? '',
         mode: s.uri.queryParameters['mode'] ?? 'default',
+        channel: s.uri.queryParameters['channel'],
+        hint: s.uri.queryParameters['hint'],
       )),
       GoRoute(path: '/auth/register', builder: (_, _) => const RegisterScreen()),
       GoRoute(path: '/auth/admin', builder: (_, _) => const AdminLoginScreen()),
       GoRoute(path: '/auth/set-password', builder: (_, _) => const SetPasswordScreen()),
       GoRoute(path: '/auth/change-password', builder: (_, _) => const ChangePasswordScreen()),
       GoRoute(path: '/auth/signup', builder: (_, _) => const EmailSignupScreen()),
+      GoRoute(path: '/auth/verify-email', builder: (_, s) => VerifyEmailScreen(
+        next: s.uri.queryParameters['next'] ?? '/home',
+      )),
 
       ShellRoute(
         builder: (context, state, child) => CustomerShell(child: child),
@@ -200,17 +209,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     });
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FBF9),
+      backgroundColor: AppColors.background,
       body: Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Icon(Icons.agriculture, size: 80, color: Color(0xFF2E7D32)),
+          Image.asset('assets/images/logo.png', width: 100, height: 100),
           const SizedBox(height: 16),
           const Text('HappyKrishi',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.primary)),
           const Text('Farm Fresh Delivery',
               style: TextStyle(color: Colors.grey, fontSize: 14)),
           const SizedBox(height: 40),
-          const CircularProgressIndicator(color: Color(0xFF2E7D32)),
+          const CircularProgressIndicator(color: AppColors.primary),
         ]),
       ),
     );

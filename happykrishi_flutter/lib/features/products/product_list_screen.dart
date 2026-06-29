@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -198,7 +199,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
       floatingActionButton: cartCount > 0
           ? FloatingActionButton.extended(
               onPressed: () => context.push('/cart'),
-              backgroundColor: const Color(0xFF2E7D32),
+              backgroundColor: AppColors.primary,
               icon: const Icon(Icons.shopping_cart, color: Colors.white),
               label: Text('Cart ($cartCount)',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -231,12 +232,12 @@ class _ProductCard extends ConsumerWidget {
             child: Stack(fit: StackFit.expand, children: [
               p.imageUrl != null
                   ? CachedNetworkImage(
-                      imageUrl: '${Endpoints.baseUrl}${p.imageUrl}',
+                      imageUrl: Endpoints.imageUrl(p.imageUrl),
                       fit: BoxFit.cover)
                   : Container(
-                      color: const Color(0xFFE8F5E9),
+                      color: const Color(0xFFEAF2EA),
                       child: const Center(
-                          child: Icon(Icons.eco, size: 40, color: Color(0xFF2E7D32)))),
+                          child: Icon(Icons.eco, size: 40, color: AppColors.primary))),
               if (p.isWeightAdjusted)
                 Positioned(
                   top: 6, left: 6,
@@ -255,7 +256,7 @@ class _ProductCard extends ConsumerWidget {
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: const BoxDecoration(
-                        color: Color(0xFF2E7D32), shape: BoxShape.circle),
+                        color: AppColors.primary, shape: BoxShape.circle),
                     child: const Icon(Icons.check, color: Colors.white, size: 12),
                   ),
                 ),
@@ -274,7 +275,7 @@ class _ProductCard extends ConsumerWidget {
             ),
             Text('₹${p.pricePerUnit}/${p.unit}',
                 style: const TextStyle(
-                    color: Color(0xFF2E7D32),
+                    color: AppColors.primary,
                     fontWeight: FontWeight.bold,
                     fontSize: 12)),
             // Stock info
@@ -362,7 +363,7 @@ class _StepBtn extends StatelessWidget {
       child: Container(
         width: 28, height: 28,
         decoration: BoxDecoration(
-            color: const Color(0xFF2E7D32),
+            color: AppColors.primary,
             borderRadius: BorderRadius.circular(6)),
         child: Icon(icon, color: Colors.white, size: 16),
       ),
@@ -378,7 +379,7 @@ class _CatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const color = Color(0xFF2E7D32);
+    const color = AppColors.primary;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(

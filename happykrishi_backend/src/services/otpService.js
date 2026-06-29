@@ -114,12 +114,19 @@ function sendSmsOtp_msg91(phone, code) {
   if (!authKey) return;
 
   const formattedPhone = phone.startsWith('91') ? phone : '91' + phone;
-  const payload = JSON.stringify({ template_id: templateId, mobile: formattedPhone, authkey: authKey, otp: code });
+  const payload = JSON.stringify({
+    template_id: templateId,
+    mobile: formattedPhone,
+    otp: code,
+  });
   const options = {
     hostname: 'control.msg91.com',
     path: '/api/v5/otp',
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'authkey': authKey,
+    },
   };
   const req = https.request(options, res => {
     let data = '';
@@ -131,19 +138,38 @@ function sendSmsOtp_msg91(phone, code) {
   req.end();
 }
 
-// ── Email OTP (for admin users) ───────────────────────────────────────────────
+// ── Email OTP ─────────────────────────────────────────────────────────────────
 
-async function sendEmailOtp(email, code, name) {
+async function sendEmailOtp(email, code, name, purpose = 'login') {
   const nodemailer = require('nodemailer');
 
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
-    // Dev mode — just log it
     console.log(`\n========================================`);
     console.log(`[DEV EMAIL OTP] To: ${email}`);
     console.log(`[DEV EMAIL OTP] Code: ${code}`);
     console.log(`========================================\n`);
     return true;
   }
+
+  const subjectMap = {
+    login: `Your HappyKrishi login OTP: ${code}`,
+    verify_email: `Verify your HappyKrishi email: ${code}`,
+    change_password: `HappyKrishi password change OTP: ${code}`,
+  };
+  const headingMap = {
+    login: 'Your Login OTP',
+    verify_email: 'Verify Your Email',
+    change_password: 'Password Change OTP',
+  };
+  const bodyMap = {
+    login: 'Use this code to log in to your HappyKrishi account.',
+    verify_email: 'Use this code to verify your email address.',
+    change_password: 'Use this code to confirm your password change.',
+  };
+
+  const subject = subjectMap[purpose] || subjectMap.login;
+  const heading = headingMap[purpose] || headingMap.login;
+  const bodyText = bodyMap[purpose] || bodyMap.login;
 
   try {
     const transporter = nodemailer.createTransport({
@@ -156,16 +182,18 @@ async function sendEmailOtp(email, code, name) {
     await transporter.sendMail({
       from: `"${process.env.FROM_NAME || 'HappyKrishi'}" <${process.env.FROM_EMAIL || process.env.SMTP_USER}>`,
       to: email,
-      subject: `Your HappyKrishi Admin OTP: ${code}`,
+      subject,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:auto">
-          <h2 style="color:#2E7D32">HappyKrishi Admin OTP</h2>
-          <p>Hi ${name || 'Admin'},</p>
-          <p>Your one-time login code is:</p>
+          <h2 style="color:#2E7D32">HappyKrishi — ${heading}</h2>
+          <p>Hi ${name || 'there'},</p>
+          <p>${bodyText}</p>
           <div style="font-size:36px;font-weight:bold;letter-spacing:10px;
                background:#E8F5E9;padding:20px;border-radius:8px;
                text-align:center;color:#1B5E20">${code}</div>
-          <p style="color:#888;margin-top:16px">Valid for 10 minutes. Do not share.</p>
+          <p style="color:#888;margin-top:16px">Valid for 10 minutes. Do not share this code with anyone.</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+          <p style="color:#bbb;font-size:12px">If you didn't request this, please ignore this email or contact us at ${process.env.SUPPORT_EMAIL || 'support@happykrishi.com'}.</p>
         </div>
       `,
     });
@@ -181,39 +209,55 @@ async function sendEmailOtp(email, code, name) {
 
 async function sendSmsOtp(phone, code) {
   const db = require('../config/database');
-  const user = db.prepare("SELECT email, name, role FROM users WHERE phone = ?").get(phone);
+  const user = db.prepare("SELECT email, name, role, email_verified FROM users WHERE phone = ?").get(phone);
 
   const isAdmin = user && (user.role === 'admin' || user.role === 'subadmin');
 
-  // Always send to email if the user has one
-  if (user?.email) {
-    const sent = await sendEmailOtp(user.email, code, user.name);
+  // Admins always get OTP via email (no SMS for admins)
+  if (isAdmin && user?.email) {
+    const sent = await sendEmailOtp(user.email, code, user.name, 'login');
     if (sent) console.log(`[OTP] Sent to email: ${user.email}`);
-    // For admins: email is the primary channel, don't fall through to SMS
-    if (isAdmin && sent) return;
+    return sent;
   }
 
-  // For admins without email (or email failed) — still try WhatsApp/SMS
-  // For all customers — send via WhatsApp/SMS too (parallel delivery)
+  // Customers with VERIFIED email get OTP via email (free)
+  if (user?.email && user.email_verified) {
+    const sent = await sendEmailOtp(user.email, code, user.name, 'login');
+    if (sent) {
+      console.log(`[OTP] Sent to email: ${user.email}`);
+      return true;
+    }
+    // Email failed — fall through to SMS
+  }
+
+  // No verified email → try SMS/WhatsApp
+
   const whatsappConfigured = !!(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID);
   const smsConfigured = !!process.env.MSG91_AUTH_KEY;
 
   if (!whatsappConfigured && !smsConfigured) {
-    if (!user?.email) devLog(phone, code);   // only dev-log if email wasn't sent
-    return;
+    devLog(phone, code);
+    return false; // no SMS channel configured
   }
 
   if (whatsappConfigured) {
     const sent = await sendWhatsAppOtp(phone, code);
-    if (sent) return;
+    if (sent) return true;
     console.warn('[OTP] WhatsApp failed, falling back to SMS');
   }
 
   if (smsConfigured) {
-    sendSmsOtp_msg91(phone, code);
+    try {
+      sendSmsOtp_msg91(phone, code);
+      return true;
+    } catch (e) {
+      console.error('[OTP] SMS failed:', e);
+      return false;
+    }
   } else if (!user?.email) {
     devLog(phone, code);
   }
+  return false;
 }
 
 module.exports = { generateOtp, saveOtp, verifyOtp, sendSmsOtp, sendEmailOtp };

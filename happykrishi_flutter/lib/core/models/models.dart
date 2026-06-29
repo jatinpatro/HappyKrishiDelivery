@@ -14,6 +14,8 @@ class AppUser {
   final String? birthdate;
   final String? tierName;
   final String? tierColor;
+  final bool phoneVerified;
+  final bool emailVerified;
 
   const AppUser({
     required this.id,
@@ -29,6 +31,8 @@ class AppUser {
     this.birthdate,
     this.tierName,
     this.tierColor,
+    this.phoneVerified = false,
+    this.emailVerified = false,
   });
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
@@ -45,12 +49,15 @@ class AppUser {
         birthdate: j['birthdate'] as String?,
         tierName: j['tier_name'] as String?,
         tierColor: j['tier_color'] as String?,
+        phoneVerified: _b(j['phone_verified']),
+        emailVerified: _b(j['email_verified']),
       );
 
   AppUser copyWith({String? name, String? email, double? walletBalance}) => AppUser(
         id: id, phone: phone, role: role, nameOdia: nameOdia,
         isActive: isActive, createdAt: createdAt,
         gender: gender, birthdate: birthdate, tierName: tierName, tierColor: tierColor,
+        phoneVerified: phoneVerified, emailVerified: emailVerified,
         name: name ?? this.name,
         email: email ?? this.email,
         walletBalance: walletBalance ?? this.walletBalance,
@@ -241,6 +248,9 @@ class Order {
   final String? salesmanPhone;
   final String? orderType;
   final double? customerWalletBalance;
+  final String? couponCode;
+  final String? deliveryCode;
+  final String? customerConfirmedAt;
 
   const Order({
     required this.id, required this.orderNumber, required this.userId,
@@ -251,7 +261,8 @@ class Order {
     required this.paymentStatus, this.notes, this.cancelledReason,
     required this.createdAt, this.slotLabel, this.addressLine, this.city,
     this.salesmanName, this.salesmanPhone, this.orderType,
-    this.customerWalletBalance,
+    this.customerWalletBalance, this.couponCode,
+    this.deliveryCode, this.customerConfirmedAt,
   });
 
   factory Order.fromJson(Map<String, dynamic> j) => Order(
@@ -280,6 +291,9 @@ class Order {
         customerWalletBalance: j['customer_wallet_balance'] == null
             ? null
             : _d(j['customer_wallet_balance']),
+        couponCode: j['coupon_code'] as String?,
+        deliveryCode: j['delivery_code'] as String?,
+        customerConfirmedAt: j['customer_confirmed_at'] as String?,
       );
 }
 
@@ -344,13 +358,16 @@ class DeliveryInfo {
   final String? assignedAt;
   final String? pickedAt;
   final String? deliveredAt;
-  final String? agentName;
-  final String? agentPhone;
+  final String? staffName;    // salesman or delivery staff name
+  final String? staffPhone;
+  final String? deliveryCode;
+  final String? customerConfirmedAt;
 
   const DeliveryInfo({
     required this.id, required this.orderId, this.agentId,
     required this.status, this.assignedAt, this.pickedAt,
-    this.deliveredAt, this.agentName, this.agentPhone,
+    this.deliveredAt, this.staffName, this.staffPhone,
+    this.deliveryCode, this.customerConfirmedAt,
   });
 
   factory DeliveryInfo.fromJson(Map<String, dynamic> j) => DeliveryInfo(
@@ -361,8 +378,10 @@ class DeliveryInfo {
         assignedAt: j['assigned_at'] as String?,
         pickedAt: j['picked_at'] as String?,
         deliveredAt: j['delivered_at'] as String?,
-        agentName: j['agent_name'] as String?,
-        agentPhone: j['agent_phone'] as String?,
+        staffName: j['agent_name'] as String?,   // still keyed as agent_name in API
+        staffPhone: j['agent_phone'] as String?,
+        deliveryCode: j['delivery_code'] as String?,
+        customerConfirmedAt: j['customer_confirmed_at'] as String?,
       );
 }
 

@@ -606,5 +606,15 @@ try { db.exec(`
 
 try { db.exec('ALTER TABLE users ADD COLUMN last_login_at TEXT'); } catch (_) {}
 try { db.exec('ALTER TABLE users ADD COLUMN last_active_at TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE users ADD COLUMN phone_verified INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+try { db.exec('ALTER TABLE otp_codes ADD COLUMN sent_via TEXT'); } catch (_) {}
+
+// Mark existing active customers as phone_verified (they're already using the app)
+try { db.exec("UPDATE users SET phone_verified=1 WHERE role='customer' AND is_active=1 AND phone NOT LIKE 'email_%' AND phone_verified=0"); } catch (_) {}
+
+// App config: rate limits and SMS cost
+try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('sms_otp_cost', '2')"); } catch (_) {}
+try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('otp_rate_limit_per_hour', '5')"); } catch (_) {}
+try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('otp_rate_limit_per_day', '10')"); } catch (_) {}
 
 module.exports = db;

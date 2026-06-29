@@ -52,6 +52,8 @@ app.use('/api/delivery', require('./src/routes/delivery'));
 app.use('/api/notifications', require('./src/routes/notifications'));
 app.use('/api/admin', require('./src/routes/admin'));
 app.use('/api/salesman', require('./src/routes/salesman'));
+app.use('/api/referral', require('./src/routes/referral'));
+app.use('/api/promo', require('./src/routes/promo'));
 
 // Public app info — delivery rules, contact details (no auth required)
 app.get('/api/app-info', (req, res) => {
@@ -123,12 +125,14 @@ app.get('/api/delivery/check-pincode', async (req, res) => {
     const result = await checkPincode(pincode.trim());
     // Include custom rules if whitelisted
     const cached = db.prepare('SELECT min_order_amount, allowed_product_ids, custom_delivery_charge FROM pincode_cache WHERE pincode = ?').get(pincode.trim());
+    const tieredRules = db.prepare('SELECT * FROM pincode_delivery_rules WHERE pincode = ? ORDER BY sort_order ASC, min_subtotal ASC').all(pincode.trim());
     res.json({
       ...result,
       max_radius_km: MAX_RADIUS_KM,
       min_order_amount: cached?.min_order_amount ?? null,
       allowed_product_ids: cached?.allowed_product_ids ? JSON.parse(cached.allowed_product_ids) : null,
       custom_delivery_charge: cached?.custom_delivery_charge ?? null,
+      delivery_rules: tieredRules.length > 0 ? tieredRules : null,
     });
   } catch (e) {
     console.error('[check-pincode]', e);
@@ -237,7 +241,7 @@ cron.schedule('0 23 28-31 * *', () => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`HappyKrishi API running on port ${PORT}`);
   console.log(`WebSocket server ready`);
 });

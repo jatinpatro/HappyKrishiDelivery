@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,40 +15,19 @@ class OtpScreen extends ConsumerStatefulWidget {
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
 }
 
-class _OtpScreenState extends ConsumerState<OtpScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabs;
-
-  // Customer tab — shared identifier (phone or email)
+class _OtpScreenState extends ConsumerState<OtpScreen> {
+  // Customer login fields
   final _identifierCtrl  = TextEditingController();
   final _passCtrl        = TextEditingController();
-  bool _usePassword      = false;   // false = OTP mode, true = password mode
+  bool _usePassword      = false;
   bool _passObscure      = true;
-
-  // Salesman tab
-  final _salesmanPhoneCtrl = TextEditingController();
-  final _salesmanPassCtrl  = TextEditingController();
-  bool _salesmanObscure    = true;
-
-  // Admin tab
-  final _adminPhoneCtrl = TextEditingController();
 
   bool _loading = false;
 
   @override
-  void initState() {
-    super.initState();
-    _tabs = TabController(length: 3, vsync: this);
-  }
-
-  @override
   void dispose() {
-    _tabs.dispose();
     _identifierCtrl.dispose();
     _passCtrl.dispose();
-    _salesmanPhoneCtrl.dispose();
-    _salesmanPassCtrl.dispose();
-    _adminPhoneCtrl.dispose();
     super.dispose();
   }
 
@@ -63,24 +43,103 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
 
     setState(() => _loading = true);
     try {
-      final dio = ref.read(dioProvider);
-      Map<String, dynamic> data;
-      if (_identifierIsEmail) {
-        data = {'email': id};
-      } else {
-        if (id.length != 10) { _show('Enter a valid 10-digit phone number'); return; }
-        data = {'phone': id};
+      if (!_identifierIsEmail && id.length != 10) {
+        _show('Enter a valid 10-digit phone number');
+        return;
       }
+
+      // Call backend — routes to email if verified, otherwise email fallback
+      final dio = ref.read(dioProvider);
+      final data = _identifierIsEmail ? {'email': id} : {'phone': id};
       final res = await dio.post(Endpoints.sendOtp, data: data);
       if (!mounted) return;
-      // Backend returns phone even when email was used (needed for verify route)
       final phone = res.data['phone'] as String? ?? id;
-      context.go('/auth/verify?phone=$phone&mode=customer');
+      final channel = res.data['channel'] as String? ?? 'sms';
+      final hint = res.data['hint'] as String?;
+      final smsCost = res.data['sms_cost'];
+
+      String msg;
+      if (channel == 'email') {
+        msg = hint != null ? 'OTP sent to $hint' : 'OTP sent to your email';
+      } else {
+        msg = smsCost != null ? 'OTP sent via SMS (₹$smsCost charged)' : 'OTP sent to your phone';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      final encodedHint = hint != null ? Uri.encodeComponent(hint) : '';
+      final channelParam = channel ?? 'sms';
+      context.go('/auth/verify?phone=$phone&mode=customer&channel=$channelParam${encodedHint.isNotEmpty ? "&hint=$encodedHint" : ""}');
     } on DioException catch (e) {
-      _show(e.response?.data['error'] ?? 'Failed to send OTP');
+      final data = e.response?.data;
+      final error = data?['error'] as String? ?? 'Failed to send OTP';
+      final canUsePassword = data?['can_use_password'] == true;
+      final needsEmailVerify = data?['needs_email_verify'] == true;
+      final walletBalance = data?['wallet_balance'];
+      final smsCost = data?['sms_cost'];
+
+      if (e.response?.statusCode == 402) {
+        // Insufficient wallet
+        _showOtpBlockedDialog(
+          error: error,
+          canUsePassword: canUsePassword,
+          needsEmailVerify: needsEmailVerify,
+          walletBalance: walletBalance?.toString(),
+          smsCost: smsCost?.toString(),
+        );
+      } else if (e.response?.statusCode == 503) {
+        // Service down
+        _showOtpBlockedDialog(
+          error: error,
+          canUsePassword: canUsePassword,
+          needsEmailVerify: needsEmailVerify,
+        );
+      } else {
+        _show(error);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _showOtpBlockedDialog({
+    required String error,
+    required bool canUsePassword,
+    required bool needsEmailVerify,
+    String? walletBalance,
+    String? smsCost,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cannot Send OTP'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(error, style: const TextStyle(fontSize: 13)),
+          if (walletBalance != null && smsCost != null) ...[
+            const SizedBox(height: 8),
+            Text('Wallet: ₹$walletBalance · SMS cost: ₹$smsCost',
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+          const SizedBox(height: 12),
+          if (canUsePassword)
+            const Text('💡 Use Password login instead — no OTP needed.',
+                style: TextStyle(fontSize: 13, color: AppColors.primary)),
+          if (needsEmailVerify)
+            const Text('📧 Verify your email to get free OTPs.',
+                style: TextStyle(fontSize: 13, color: Colors.indigo)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          if (canUsePassword)
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                setState(() => _usePassword = true);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+              child: const Text('Use Password'),
+            ),
+        ],
+      ),
+    );
   }
 
   // ── Customer: password login (phone or email + password) ──────────────────
@@ -115,234 +174,148 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
     }
   }
 
-  // ── Salesman login ────────────────────────────────────────────────────────
-  Future<void> _salesmanLogin() async {
-    final phone = _salesmanPhoneCtrl.text.trim();
-    final pass  = _salesmanPassCtrl.text;
-    if (phone.length != 10) { _show('Enter a valid 10-digit number'); return; }
-    if (pass.isEmpty) { _show('Enter your password'); return; }
-    setState(() => _loading = true);
-    try {
-      final dio = ref.read(dioProvider);
-      final res = await dio.post(Endpoints.salesmanLogin,
-          data: {'phone': phone, 'password': pass});
-      final token = res.data['token'] as String;
-      final user  = AppUser.fromJson(res.data['user']);
-      ref.read(authStateProvider.notifier).setUserFromToken(token, user);
-      if (!mounted) return;
-      context.go('/salesman');
-    } on DioException catch (e) {
-      _show(e.response?.data['error'] ?? 'Login failed');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
+  // ── Salesman login (kept for staff screen reuse) ─────────────────────────
+  // moved to StaffLoginScreen
 
-  // ── Admin OTP ─────────────────────────────────────────────────────────────
-  Future<void> _sendAdminOtp() async {
-    final phone = _adminPhoneCtrl.text.trim();
-    if (phone.length != 10) { _show('Enter admin phone number'); return; }
-    setState(() => _loading = true);
-    try {
-      final dio = ref.read(dioProvider);
-      await dio.post(Endpoints.sendOtp, data: {'phone': phone});
-      if (mounted) context.go('/auth/verify?phone=$phone&mode=admin');
-    } on DioException catch (e) {
-      _show(e.response?.data['error'] ?? 'Failed to send OTP');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
+  // ── Admin OTP (kept for staff screen reuse) ──────────────────────────────
+  // moved to StaffLoginScreen
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SizedBox(height: 24),
-            Image.asset('assets/images/logo.png', width: 80, height: 80),
-            const SizedBox(height: 12),
-            Text('HappyKrishi',
-                style: Theme.of(context).textTheme.headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF2E7D32))),
-            Text('Farm Fresh Delivery',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey)),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
 
-            // ── Tab bar ─────────────────────────────────────────────────────
+            // ── Hero header ──────────────────────────────────────────────────
             Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
               decoration: BoxDecoration(
-                  color: Colors.grey.shade100, borderRadius: BorderRadius.circular(12)),
-              child: TabBar(
-                controller: _tabs,
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.grey.shade600,
-                indicator: BoxDecoration(
-                  color: const Color(0xFF2E7D32),
-                  borderRadius: BorderRadius.circular(12),
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Column(children: [
+                // Emoji product strip
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('🥦', style: TextStyle(fontSize: 28)),
+                    SizedBox(width: 10),
+                    Text('🍅', style: TextStyle(fontSize: 28)),
+                    SizedBox(width: 10),
+                    Text('🥕', style: TextStyle(fontSize: 28)),
+                    SizedBox(width: 10),
+                    Text('🌽', style: TextStyle(fontSize: 28)),
+                    SizedBox(width: 10),
+                    Text('🥬', style: TextStyle(fontSize: 28)),
+                  ],
                 ),
-                labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                unselectedLabelStyle: const TextStyle(fontSize: 12),
-                tabs: const [
-                  Tab(text: 'Customer'),
-                  Tab(text: 'Salesman'),
-                  Tab(text: 'Admin'),
-                ],
-              ),
+                const SizedBox(height: 16),
+                Image.asset('assets/images/logo.png', width: 64, height: 64),
+                const SizedBox(height: 10),
+                Text('HappyKrishi',
+                    style: Theme.of(context).textTheme.headlineMedium
+                        ?.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text('Farm fresh, delivered daily 🌿',
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: Colors.white.withValues(alpha: 0.85))),
+                const SizedBox(height: 16),
+                // Second emoji row — fruit & dairy
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('🍋', style: TextStyle(fontSize: 22)),
+                    SizedBox(width: 8),
+                    Text('🥛', style: TextStyle(fontSize: 22)),
+                    SizedBox(width: 8),
+                    Text('🍳', style: TextStyle(fontSize: 22)),
+                    SizedBox(width: 8),
+                    Text('🫙', style: TextStyle(fontSize: 22)),
+                    SizedBox(width: 8),
+                    Text('🐟', style: TextStyle(fontSize: 22)),
+                    SizedBox(width: 8),
+                    Text('🍇', style: TextStyle(fontSize: 22)),
+                    SizedBox(width: 8),
+                    Text('🧅', style: TextStyle(fontSize: 22)),
+                  ],
+                ),
+              ]),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 28),
 
-            // ── Tab views ───────────────────────────────────────────────────
-            SizedBox(
-              height: 300,
-              child: TabBarView(
-                controller: _tabs,
-                children: [
-
-                  // ── Customer tab ──────────────────────────────────────────
-                  _TabCard(
-                    icon: Icons.person_outline,
-                    title: 'Customer Login',
-                    color: const Color(0xFF2E7D32),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-
-                      // Identifier field — phone or email
-                      TextField(
-                        controller: _identifierCtrl,
-                        keyboardType: _usePassword
-                            ? TextInputType.emailAddress
-                            : TextInputType.phone,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          labelText: 'Phone number or Email',
-                          prefixIcon: Icon(
-                            _identifierIsEmail
-                                ? Icons.email_outlined
-                                : Icons.phone_outlined,
-                            size: 18,
-                          ),
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                          helperText: _usePassword
-                              ? null
-                              : 'OTP sent to phone & email',
-                          helperStyle: const TextStyle(fontSize: 11),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      // OTP vs Password toggle
-                      Row(children: [
-                        const Text('Login via:', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                        const SizedBox(width: 8),
-                        _ModeChip(
-                          label: 'OTP',
-                          selected: !_usePassword,
-                          onTap: () => setState(() { _usePassword = false; _passCtrl.clear(); }),
-                        ),
-                        const SizedBox(width: 6),
-                        _ModeChip(
-                          label: 'Password',
-                          selected: _usePassword,
-                          onTap: () => setState(() => _usePassword = true),
-                        ),
-                      ]),
-
-                      if (_usePassword) ...[
-                        const SizedBox(height: 8),
-                        _PasswordField(
-                          controller: _passCtrl,
-                          obscure: _passObscure,
-                          label: 'Password',
-                          onToggle: () => setState(() => _passObscure = !_passObscure),
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-
-                      _FullButton(
-                        label: _usePassword ? 'Log In' : 'Send OTP',
-                        loading: _loading,
-                        onPressed: _usePassword ? _passwordLogin : _sendOtp,
-                        icon: _usePassword ? Icons.login : Icons.send_outlined,
-                      ),
-                      const SizedBox(height: 4),
-                      Center(
-                        child: TextButton(
-                          onPressed: () => context.push('/auth/signup'),
-                          style: TextButton.styleFrom(
-                              minimumSize: Size.zero,
-                              padding: const EdgeInsets.symmetric(vertical: 4)),
-                          child: const Text('New here? Create account →',
-                              style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32))),
-                        ),
-                      ),
-                    ]),
+            // ── Customer login card ──────────────────────────────────────────
+            _TabCard(
+              icon: Icons.person_outline,
+              title: 'Customer Login',
+              color: AppColors.primary,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                TextField(
+                  controller: _identifierCtrl,
+                  keyboardType: _usePassword
+                      ? TextInputType.emailAddress
+                      : TextInputType.phone,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: 'Phone number or Email',
+                    prefixIcon: Icon(
+                      _identifierIsEmail ? Icons.email_outlined : Icons.phone_outlined,
+                      size: 18,
+                    ),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    helperText: _usePassword ? null : 'OTP sent to verified email or phone',
+                    helperStyle: const TextStyle(fontSize: 11),
                   ),
-
-                  // ── Salesman tab ──────────────────────────────────────────
-                  _TabCard(
-                    icon: Icons.badge_outlined,
-                    title: 'Salesman Login',
-                    color: Colors.orange.shade700,
-                    child: Column(children: [
-                      _PhoneField(controller: _salesmanPhoneCtrl, label: 'Salesman Phone'),
-                      const SizedBox(height: 8),
-                      _PasswordField(
-                        controller: _salesmanPassCtrl,
-                        obscure: _salesmanObscure,
-                        label: 'Password',
-                        onToggle: () => setState(() => _salesmanObscure = !_salesmanObscure),
-                      ),
-                      const SizedBox(height: 10),
-                      _FullButton(
-                        label: 'Salesman Login',
-                        loading: _loading,
-                        onPressed: _salesmanLogin,
-                        color: Colors.orange.shade700,
-                      ),
-                    ]),
+                ),
+                const SizedBox(height: 8),
+                Row(children: [
+                  const Text('Login via:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(width: 8),
+                  _ModeChip(
+                    label: 'OTP',
+                    selected: !_usePassword,
+                    onTap: () => setState(() { _usePassword = false; _passCtrl.clear(); }),
                   ),
-
-                  // ── Admin tab ─────────────────────────────────────────────
-                  _TabCard(
-                    icon: Icons.admin_panel_settings_outlined,
-                    title: 'Admin Login',
-                    color: Colors.indigo,
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      _PhoneField(controller: _adminPhoneCtrl, label: 'Admin Phone Number'),
-                      const SizedBox(height: 8),
-                      Row(children: [
-                        const Icon(Icons.email_outlined, size: 14, color: Colors.indigo),
-                        const SizedBox(width: 6),
-                        Text('OTP sent to your registered email',
-                            style: TextStyle(color: Colors.indigo.shade400, fontSize: 12)),
-                      ]),
-                      const SizedBox(height: 10),
-                      _FullButton(
-                        label: 'Send OTP',
-                        loading: _loading,
-                        onPressed: _sendAdminOtp,
-                        color: Colors.indigo,
-                        icon: Icons.email_outlined,
-                      ),
-                      const SizedBox(height: 8),
-                      Center(
-                        child: TextButton.icon(
-                          icon: const Icon(Icons.lock_outline, size: 14),
-                          label: const Text('Login with Password instead'),
-                          style: TextButton.styleFrom(
-                              foregroundColor: Colors.indigo,
-                              textStyle: const TextStyle(fontSize: 12)),
-                          onPressed: () => context.push('/auth/admin'),
-                        ),
-                      ),
-                    ]),
+                  const SizedBox(width: 6),
+                  _ModeChip(
+                    label: 'Password',
+                    selected: _usePassword,
+                    onTap: () => setState(() => _usePassword = true),
                   ),
-
+                ]),
+                if (_usePassword) ...[
+                  const SizedBox(height: 8),
+                  _PasswordField(
+                    controller: _passCtrl,
+                    obscure: _passObscure,
+                    label: 'Password',
+                    onToggle: () => setState(() => _passObscure = !_passObscure),
+                  ),
                 ],
-              ),
+                const SizedBox(height: 10),
+                _FullButton(
+                  label: _usePassword ? 'Log In' : 'Send OTP',
+                  loading: _loading,
+                  onPressed: _usePassword ? _passwordLogin : _sendOtp,
+                  icon: _usePassword ? Icons.login : Icons.send_outlined,
+                ),
+                const SizedBox(height: 4),
+                Center(
+                  child: TextButton(
+                    onPressed: () => context.push('/auth/signup'),
+                    style: TextButton.styleFrom(
+                        minimumSize: Size.zero,
+                        padding: const EdgeInsets.symmetric(vertical: 4)),
+                    child: const Text('New here? Create account →',
+                        style: TextStyle(fontSize: 12, color: AppColors.primary)),
+                  ),
+                ),
+              ]),
             ),
 
             // ── Download APK banner (web only) ──────────────────────────────
@@ -358,7 +331,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF1B5E20), Color(0xFF2E7D32)],
+                      colors: [AppColors.primaryDark, AppColors.primary],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -391,6 +364,18 @@ class _OtpScreenState extends ConsumerState<OtpScreen>
             ],
 
             const SizedBox(height: 24),
+
+            // ── Staff login link ─────────────────────────────────────────────
+            Center(
+              child: TextButton(
+                onPressed: () => context.push('/staff'),
+                style: TextButton.styleFrom(
+                    minimumSize: Size.zero,
+                    padding: const EdgeInsets.symmetric(vertical: 4)),
+                child: Text('Staff login →',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
+              ),
+            ),
 
             // ── WhatsApp help button ─────────────────────────────────────────
             Center(
@@ -433,7 +418,7 @@ class _ModeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const color = Color(0xFF2E7D32);
+    const color = AppColors.primary;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -485,27 +470,6 @@ class _TabCard extends StatelessWidget {
   );
 }
 
-class _PhoneField extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  const _PhoneField({required this.controller, this.label = 'Phone Number'});
-
-  @override
-  Widget build(BuildContext context) => TextField(
-    controller: controller,
-    keyboardType: TextInputType.phone,
-    maxLength: 10,
-    decoration: InputDecoration(
-      labelText: label,
-      prefixText: '+91 ',
-      counterText: '',
-      border: const OutlineInputBorder(),
-      prefixIcon: const Icon(Icons.phone, size: 18),
-      isDense: true,
-    ),
-  );
-}
-
 class _PasswordField extends StatelessWidget {
   final TextEditingController controller;
   final bool obscure;
@@ -535,10 +499,9 @@ class _FullButton extends StatelessWidget {
   final String label;
   final bool loading;
   final VoidCallback onPressed;
-  final Color? color;
   final IconData? icon;
   const _FullButton({required this.label, required this.loading,
-      required this.onPressed, this.color, this.icon});
+      required this.onPressed, this.icon});
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -551,7 +514,7 @@ class _FullButton extends StatelessWidget {
       label: Text(label),
       onPressed: loading ? null : onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: color ?? const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         minimumSize: const Size(double.infinity, 38),
         padding: const EdgeInsets.symmetric(vertical: 10),

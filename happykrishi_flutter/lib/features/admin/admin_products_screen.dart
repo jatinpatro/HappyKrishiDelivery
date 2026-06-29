@@ -1,26 +1,32 @@
+import '../../core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/services/pdf_service.dart';
+import '../../core/utils/firebase_storage_web.dart' if (dart.library.io) '../../core/utils/firebase_storage_stub.dart';
 
 final adminProductsProvider =
     FutureProvider.autoDispose.family<List<Product>, String>((ref, key) async {
-  // key = "search|categoryId|stock"
+  // key = "search|categoryId|stock|isActive"
   final parts    = key.split('|');
   final search   = parts[0].isNotEmpty ? parts[0] : null;
   final catId    = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : null;
   final stock    = parts.length > 2 && parts[2].isNotEmpty ? parts[2] : null;
+  final isActive = parts.length > 3 && parts[3].isNotEmpty ? parts[3] : null;
   final dio = ref.read(dioProvider);
   final res = await dio.get(Endpoints.adminProducts, queryParameters: {
-    if (search != null) 'search':      search,
-    if (catId  != null) 'category_id': catId,
-    if (stock  != null) 'stock':       stock,
+    if (search   != null) 'search':      search,
+    if (catId    != null) 'category_id': catId,
+    if (stock    != null) 'stock':       stock,
+    if (isActive != null) 'is_active':   isActive,
   });
   return (res.data['products'] as List).map((e) => Product.fromJson(e)).toList();
 });
@@ -42,9 +48,10 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
   String _search = '';
   int? _categoryFilter;
   String? _stockFilter;
+  String? _activeFilter; // '' = all, '1' = active, '0' = inactive
 
   String get _providerKey =>
-      '$_search|${_categoryFilter ?? ''}|${_stockFilter ?? ''}';
+      '$_search|${_categoryFilter ?? ''}|${_stockFilter ?? ''}|${_activeFilter ?? ''}';
 
   @override
   void dispose() {
@@ -58,7 +65,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
     final categories = ref.watch(categoriesAdminProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Products'),
         actions: [
@@ -137,8 +144,20 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
             Wrap(spacing: 6, runSpacing: 6, children: [
               _FilterChip(
                 label: 'All',
-                selected: _stockFilter == null && _categoryFilter == null,
-                onTap: () => setState(() { _stockFilter = null; _categoryFilter = null; }),
+                selected: _stockFilter == null && _categoryFilter == null && _activeFilter == null,
+                onTap: () => setState(() { _stockFilter = null; _categoryFilter = null; _activeFilter = null; }),
+              ),
+              _FilterChip(
+                label: '✅ Active',
+                selected: _activeFilter == '1',
+                color: AppColors.primary,
+                onTap: () => setState(() => _activeFilter = _activeFilter == '1' ? null : '1'),
+              ),
+              _FilterChip(
+                label: '🚫 Inactive',
+                selected: _activeFilter == '0',
+                color: Colors.grey,
+                onTap: () => setState(() => _activeFilter = _activeFilter == '0' ? null : '0'),
               ),
               _FilterChip(
                 label: '⚠️ Low stock',
@@ -168,7 +187,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                 children: categories.value!.map((c) => _FilterChip(
                   label: c.name,
                   selected: _categoryFilter == c.id,
-                  color: const Color(0xFF2E7D32),
+                  color: AppColors.primary,
                   onTap: () => setState(() =>
                       _categoryFilter = _categoryFilter == c.id ? null : c.id),
                 )).toList(),
@@ -243,7 +262,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                     final p = list[i];
                     final isLow  = p.stockQty > 0 && p.stockQty <= p.lowStockThreshold;
                     final isOut  = p.stockQty <= 0;
-                    final stockColor = isOut ? Colors.red : isLow ? Colors.orange : const Color(0xFF2E7D32);
+                    final stockColor = isOut ? Colors.red : isLow ? Colors.orange : AppColors.primary;
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -271,7 +290,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                                     )),
                                 const SizedBox(height: 2),
                                 Text('₹${p.pricePerUnit.toStringAsFixed(0)} / ${p.unit}',
-                                    style: const TextStyle(fontSize: 13, color: Color(0xFF2E7D32),
+                                    style: const TextStyle(fontSize: 13, color: AppColors.primary,
                                         fontWeight: FontWeight.w600)),
                               ]),
                             ),
@@ -279,7 +298,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                             Column(children: [
                               Switch(
                                 value: p.isActive,
-                                activeTrackColor: const Color(0xFF2E7D32),
+                                activeTrackColor: AppColors.primary,
                                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 onChanged: (v) async {
                                   await ref.read(dioProvider).put(Endpoints.product(p.id),
@@ -289,7 +308,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                               ),
                               Text(p.isActive ? 'Active' : 'Off',
                                   style: TextStyle(fontSize: 9,
-                                      color: p.isActive ? const Color(0xFF2E7D32) : Colors.grey)),
+                                      color: p.isActive ? AppColors.primary : Colors.grey)),
                             ]),
                           ]),
 
@@ -299,7 +318,7 @@ class _AdminProductsScreenState extends ConsumerState<AdminProductsScreen> {
                           Wrap(spacing: 6, runSpacing: 4, children: [
                             if (p.categoryName != null)
                               _InfoBadge(Icons.category_outlined, p.categoryName!,
-                                  const Color(0xFF2E7D32)),
+                                  AppColors.primary),
                             _InfoBadge(Icons.inventory_2_outlined,
                                 'Stock: ${p.stockQty.toStringAsFixed(1)} ${p.unit}',
                                 stockColor),
@@ -464,7 +483,7 @@ class _FilterChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
-    this.color = const Color(0xFF2E7D32),
+    this.color = AppColors.primary,
   });
 
   @override
@@ -515,19 +534,50 @@ class _ProductImageAvatarState extends ConsumerState<_ProductImageAvatar> {
     setState(() => _uploading = true);
     try {
       final bytes = await picked.readAsBytes();
+      final ext = picked.name.split('.').last.toLowerCase();
+      final filename = 'products/product_${widget.product.id}.$ext';
       final dio = ref.read(dioProvider);
-      final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: picked.name),
-      });
-      await dio.post(Endpoints.adminProductImage(widget.product.id), data: formData);
+
+      if (kIsWeb) {
+        // Web: use JS bridge → Firebase REST API directly (Flutter SDK hangs on web)
+        final resultJson = await uploadImageToFirebaseViaJs(bytes, filename, 'image/$ext');
+        if (resultJson['success'] == true) {
+          final firebaseUrl = resultJson['url'] as String;
+          await dio.post(Endpoints.adminProductImageUrl(widget.product.id),
+              data: {'url': firebaseUrl});
+        } else {
+          // Firebase JS failed — fall back to server upload
+          final formData = FormData.fromMap({
+            'image': MultipartFile.fromBytes(bytes, filename: picked.name),
+          });
+          await dio.post(Endpoints.adminProductImage(widget.product.id), data: formData);
+        }
+      } else {
+        // Mobile: upload to Firebase Storage for permanent storage
+        String downloadUrl;
+        try {
+          final storageRef = FirebaseStorage.instance.ref().child(filename);
+          await storageRef.putData(bytes, SettableMetadata(contentType: 'image/$ext'));
+          downloadUrl = await storageRef.getDownloadURL();
+          await dio.post(Endpoints.adminProductImageUrl(widget.product.id),
+              data: {'url': downloadUrl});
+        } catch (fbError) {
+          // Firebase failed — fall back to server upload
+          final formData = FormData.fromMap({
+            'image': MultipartFile.fromBytes(bytes, filename: picked.name),
+          });
+          await dio.post(Endpoints.adminProductImage(widget.product.id), data: formData);
+        }
+      }
+
       widget.onUploaded();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Image updated ✅'), backgroundColor: Color(0xFF2E7D32)));
+            content: Text('Image updated ✅'), backgroundColor: AppColors.primary));
       }
     } catch (e, st) {
       logError('admin-products', e, st);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -540,16 +590,16 @@ class _ProductImageAvatarState extends ConsumerState<_ProductImageAvatar> {
       onTap: _uploading ? null : _pickAndUpload,
       child: Stack(clipBehavior: Clip.none, children: [
         CircleAvatar(
-          backgroundColor: const Color(0xFFE8F5E9),
+          backgroundColor: const Color(0xFFEAF2EA),
           backgroundImage: imageUrl != null
-              ? NetworkImage('${Endpoints.baseUrl}$imageUrl')
+              ? NetworkImage(imageUrl.startsWith('http') ? imageUrl : Endpoints.imageUrl(imageUrl))
               : null,
           child: _uploading
               ? const SizedBox(width: 16, height: 16,
-                  child: CircularProgressIndicator(color: Color(0xFF2E7D32), strokeWidth: 2))
+                  child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2))
               : imageUrl == null
                   ? Text(widget.product.name.substring(0, 1),
-                      style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold))
+                      style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))
                   : null,
         ),
         if (!_uploading)
@@ -557,7 +607,7 @@ class _ProductImageAvatarState extends ConsumerState<_ProductImageAvatar> {
             right: -2, bottom: -2,
             child: Container(
               width: 14, height: 14,
-              decoration: const BoxDecoration(color: Color(0xFF2E7D32), shape: BoxShape.circle),
+              decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
               child: const Icon(Icons.camera_alt, size: 9, color: Colors.white),
             ),
           ),
@@ -599,7 +649,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
   void initState() {
     super.initState();
     if (widget.product?.imageUrl != null) {
-      _imagePreviewUrl = '${Endpoints.baseUrl}${widget.product!.imageUrl}';
+      _imagePreviewUrl = Endpoints.imageUrl(widget.product!.imageUrl);
     }
   }
 
@@ -622,7 +672,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
       ref.invalidate(adminProductsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Image uploaded ✅'), backgroundColor: Color(0xFF2E7D32)));
+            const SnackBar(content: Text('Image uploaded ✅'), backgroundColor: AppColors.primary));
       }
     } catch (e, st) {
       logError('admin-products', e, st);
@@ -790,7 +840,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
             title: const Text('Weight adjusted at delivery'),
             subtitle: const Text('e.g. paneer, fish — actual weight billed'),
             value: _isWeightAdjusted,
-            activeThumbColor: const Color(0xFF2E7D32),
+            activeThumbColor: AppColors.primary,
             onChanged: (v) => setState(() => _isWeightAdjusted = v),
           ),
           const SizedBox(height: 12),
@@ -806,7 +856,7 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                 child: Container(
                   width: 90, height: 90,
                   decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFF2E7D32), width: 2),
+                    border: Border.all(color: AppColors.primary, width: 2),
                     borderRadius: BorderRadius.circular(10),
                     color: Colors.grey.shade100,
                   ),
@@ -1047,7 +1097,7 @@ class _CategoryImageTileState extends ConsumerState<_CategoryImageTile> {
       widget.onImageUploaded();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Image updated ✅'), backgroundColor: Color(0xFF2E7D32)));
+            content: Text('Image updated ✅'), backgroundColor: AppColors.primary));
       }
     } catch (e, st) {
       logError('admin-products', e, st);
@@ -1068,14 +1118,14 @@ class _CategoryImageTileState extends ConsumerState<_CategoryImageTile> {
           children: [
             CircleAvatar(
               radius: 20,
-              backgroundColor: const Color(0xFFE8F5E9),
+              backgroundColor: const Color(0xFFEAF2EA),
               backgroundImage: imageUrl != null
-                  ? NetworkImage('${Endpoints.baseUrl}$imageUrl')
+                  ? NetworkImage(Endpoints.imageUrl(imageUrl))
                   : null,
               child: imageUrl == null
                   ? Text(widget.category.name.substring(0, 1).toUpperCase(),
                       style: const TextStyle(
-                          color: Color(0xFF2E7D32),
+                          color: AppColors.primary,
                           fontWeight: FontWeight.bold,
                           fontSize: 14))
                   : null,
@@ -1096,7 +1146,7 @@ class _CategoryImageTileState extends ConsumerState<_CategoryImageTile> {
                 child: Container(
                   width: 14, height: 14,
                   decoration: const BoxDecoration(
-                      color: Color(0xFF2E7D32), shape: BoxShape.circle),
+                      color: AppColors.primary, shape: BoxShape.circle),
                   child: const Icon(Icons.camera_alt, size: 9, color: Colors.white),
                 ),
               ),

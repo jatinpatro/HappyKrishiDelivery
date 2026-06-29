@@ -4,12 +4,25 @@ class Endpoints {
   static const String baseUrl = AppConfig.baseUrl;
   static const String wsBaseUrl = AppConfig.wsBaseUrl;
 
+  // Resolve an image URL — Firebase Storage URLs are full HTTPS, local ones are relative
+  static String imageUrl(String? url) {
+    if (url == null) return '';
+    if (url.startsWith('http')) return url;
+    return '$baseUrl$url';
+  }
+
   // Auth
   static const sendOtp = '/api/auth/send-otp';
   static const verifyOtp = '/api/auth/verify-otp';
   static const phoneLogin = '/api/auth/phone-login';
   static const register = '/api/auth/register';
   static const adminLogin = '/api/auth/admin-login';
+  static const sendEmailVerification = '/api/auth/send-email-verification';
+  static const verifyEmail           = '/api/auth/verify-email';
+  static const changePhoneRequestOtp    = '/api/auth/change-phone/request-otp';
+  static const changePhoneConfirm       = '/api/auth/change-phone/confirm';
+  static const changePhoneFirebaseConfirm = '/api/auth/change-phone/firebase-confirm';
+  static const verifyFirebasePhone   = '/api/auth/verify-firebase-phone';
   static const me = '/api/auth/me';
   static const updateProfile = '/api/auth/profile';
   static const emailSignup = '/api/auth/email-signup';
@@ -40,6 +53,9 @@ class Endpoints {
   static String rejectCustomDelivery(int id) => '/api/custom-delivery/$id/reject';
   static const whitelistedPincodes = '/api/custom-delivery/pincodes';
   static String whitelistedPincode(String pincode) => '/api/custom-delivery/pincodes/$pincode';
+  static String pincodeRules(String pincode) => '/api/custom-delivery/pincodes/$pincode/rules';
+  static String pincodeRule(String pincode, int id) => '/api/custom-delivery/pincodes/$pincode/rules/$id';
+  static String pincodeAddresses(String pincode) => '/api/custom-delivery/pincodes/$pincode/addresses';
 
   // Wallet
   static const wallet = '/api/wallet';
@@ -67,18 +83,26 @@ class Endpoints {
   static const adminPlaceOrderForCustomer = '/api/admin/orders/place-for-customer';
   static const salesmanPlaceOrderForCustomer = '/api/salesman/orders/place-for-customer';
   static String adminOrderStatus(int id) => '/api/admin/orders/$id/status';
+  static String adminWaiveDelivery(int id) => '/api/admin/orders/$id/waive-delivery';
+  static String salesmanWaiveDelivery(int id) => '/api/salesman/orders/$id/waive-delivery';
   static String adminAssignAgent(int id) => '/api/admin/orders/$id/assign';
   static String adminUpdateOrderItems(int id) => '/api/admin/orders/$id/items';
   static String adminMarkCollected(int id) => '/api/admin/orders/$id/mark-collected';
   static String salesmanUpdateOrderItems(int id) => '/api/salesman/orders/$id/items';
   static const adminAgents = '/api/admin/agents';
+  static const adminAgentLocations = '/api/admin/agents/locations';
+  static String adminAgentForceLogout(int id) => '/api/admin/agents/$id/force-logout';
+  static String adminSalesmanForceLogout(int id) => '/api/admin/salesmen/$id/force-logout';
+  static String adminRaiseSalesmanSettlement(int id) => '/api/admin/salesmen/$id/raise-settlement';
   static String adminAgentToggle(int id) => '/api/admin/agents/$id/toggle';
   static const adminProducts = '/api/admin/products';
   static String adminProductImage(int id) => '/api/admin/products/$id/image';
+  static String adminProductImageUrl(int id) => '/api/admin/products/$id/image-url';
   static String adminCategoryImage(int id) => '/api/admin/categories/$id/image';
   static const adminUsers = '/api/admin/users';
   static String adminToggleCustomer(int id) => '/api/admin/users/$id/toggle';
   static String adminResetCustomerPassword(int id) => '/api/admin/users/$id/reset-password';
+  static String adminCustomerForceLogout(int id) => '/api/admin/users/$id/force-logout';
   static const adminCreditWallet = '/api/admin/wallet/credit';
   static const adminDebitWallet = '/api/admin/wallet/debit';
 
@@ -95,8 +119,14 @@ class Endpoints {
   static const appInfo = '/api/app-info';
 
   static const adminTopupRequests = '/api/admin/topup-requests';
+  static const adminCreditAdvances = '/api/admin/credit-advances';
   static String adminApproveTopup(int id) => '/api/admin/topup-requests/$id/approve';
   static String adminRejectTopup(int id) => '/api/admin/topup-requests/$id/reject';
+  static const adminCreditAdvance = '/api/admin/topup-requests/credit-advance';
+  static String adminMarkCreditPaid(int id) => '/api/admin/topup-requests/$id/mark-paid';
+  static const salesmanCreditAdvance = '/api/salesman/credit-advance';
+  static String salesmanMarkCreditPaid(int id) => '/api/salesman/credit-advances/$id/mark-paid';
+  static const salesmanCreditAdvances = '/api/salesman/credit-advances';
   static const adminSalesmanSummary  = '/api/admin/salesman-summary';
   static const adminSalesmanSettle   = '/api/admin/salesman-settle';
   static String adminAcknowledgeSettlement(int id) => '/api/admin/salesman-settlements/$id/acknowledge';
@@ -136,6 +166,25 @@ class Endpoints {
   static String adminUpdateCustomer(int id) => '/api/admin/users/$id';
   static String adminCustomerWalletHistory(int id) => '/api/admin/users/$id/wallet-history';
   static const adminWalletAudit = '/api/admin/wallet-audit';
+  static const adminWalletAuditSummary = '/api/admin/wallet-audit/summary';
   static const registerFcmToken = '/api/auth/fcm-token';
   static const publicTiers = '/api/tiers';
+
+  // Referral
+  static const referralMyCodes  = '/api/referral/my-codes';
+  static const referralGenerate = '/api/referral/generate';
+  static const referralApply    = '/api/referral/apply';
+  static const adminReferrals            = '/api/admin/referrals';
+  static const adminReferralsGenerate    = '/api/admin/referrals/generate';
+  static const adminReferralsGeneric     = '/api/admin/referrals/generic';
+  static String adminReferralGeneric(int id) => '/api/admin/referrals/generic/$id';
+
+  // Promo codes
+  static const promoCodes         = '/api/promo';
+  static const promoValidate      = '/api/promo/validate';
+  static const promoAvailable     = '/api/promo/available';
+  static String promoCode(int id) => '/api/promo/$id';
+
+  // Delivery confirmation
+  static String orderConfirmDelivery(int id) => '/api/orders/$id/confirm-delivery';
 }

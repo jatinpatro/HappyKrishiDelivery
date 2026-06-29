@@ -6,12 +6,12 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="HappyKrishi — Farm fresh vegetables, dairy & more delivered to your door. Order online, pay via wallet. Fresh from our farm daily.">
+  <meta name="description" content="HappyKrishi Delivery — Farm fresh vegetables, dairy & more delivered to your door. Order online, pay via wallet. Fresh from our farm daily.">
 
   <!-- Open Graph (WhatsApp, Facebook, LinkedIn previews) -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://delivery.happykrishi.com/">
-  <meta property="og:title" content="HappyKrishi — Farm Fresh Delivery">
+  <meta property="og:title" content="HappyKrishi">
   <meta property="og:description" content="Order fresh vegetables, dairy & more directly from our farm. Delivered to your door. Sign up with your phone number.">
   <meta property="og:image" content="https://delivery.happykrishi.com/icons/Icon-512.png">
   <meta property="og:image:width" content="512">
@@ -21,7 +21,7 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="HappyKrishi — Farm Fresh Delivery">
+  <meta name="twitter:title" content="HappyKrishi">
   <meta name="twitter:description" content="Order fresh vegetables, dairy & more directly from our farm. Delivered to your door.">
   <meta name="twitter:image" content="https://delivery.happykrishi.com/icons/Icon-512.png">
 
@@ -36,10 +36,105 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>HappyKrishi — Farm Fresh Delivery</title>
+  <title>HappyKrishi Delivery</title>
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <!-- Firebase SDK + Phone Auth for web -->
+  <!-- Firebase Storage upload via REST — non-module so window.X is accessible immediately -->
+  <script>
+    window.uploadToFirebaseStorage = function(base64Data, filename, contentType) {
+      return new Promise(function(resolve) {
+        try {
+          const binary = atob(base64Data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const blob = new Blob([bytes], { type: contentType });
+          const encodedName = encodeURIComponent(filename);
+          const url = 'https://firebasestorage.googleapis.com/v0/b/happykrishidelivery.firebasestorage.app/o?name=' + encodedName + '&uploadType=media';
+
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url, true);
+          xhr.setRequestHeader('Content-Type', contentType);
+          xhr.onload = function() {
+            if (xhr.status === 200) {
+              const data = JSON.parse(xhr.responseText);
+              const downloadUrl = 'https://firebasestorage.googleapis.com/v0/b/happykrishidelivery.firebasestorage.app/o/' + encodedName + '?alt=media&token=' + data.downloadTokens;
+              resolve(JSON.stringify({ success: true, url: downloadUrl }));
+            } else {
+              resolve(JSON.stringify({ success: false, message: 'Upload failed: ' + xhr.status + ' ' + xhr.responseText }));
+            }
+          };
+          xhr.onerror = function() {
+            resolve(JSON.stringify({ success: false, message: 'Network error during upload' }));
+          };
+          xhr.send(blob);
+        } catch (e) {
+          resolve(JSON.stringify({ success: false, message: e.toString() }));
+        }
+      });
+    };
+  </script>
+
+  <div id="recaptcha-container" style="display:none;"></div>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+    import {
+      getAuth,
+      RecaptchaVerifier,
+      signInWithPhoneNumber
+    } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyChINmqQI3L0POKI3nyRYyzi6wRVomVWAo",
+      authDomain: "happykrishidelivery.firebaseapp.com",
+      projectId: "happykrishidelivery",
+      storageBucket: "happykrishidelivery.firebasestorage.app",
+      messagingSenderId: "231883058856",
+      appId: "1:231883058856:web:2a7337d7545a74c53f5c9d",
+      measurementId: "G-YRW9GCFFXR"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    window.firebaseApp = app;
+
+    let confirmationResult = null;
+    let recaptchaVerifier = null;
+
+    // Called from Flutter: send OTP to phone number
+    window.firebaseSendPhoneOtp = async (phoneNumber) => {
+      try {
+        // Clear existing reCAPTCHA
+        if (recaptchaVerifier) {
+          recaptchaVerifier.clear();
+          recaptchaVerifier = null;
+        }
+        recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+          callback: () => {},
+          'expired-callback': () => {}
+        });
+        confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
+        return JSON.stringify({ success: true });
+      } catch (e) {
+        return JSON.stringify({ success: false, code: e.code, message: e.message });
+      }
+    };
+      try {
+        if (!confirmationResult) {
+          return JSON.stringify({ success: false, code: 'no-confirmation', message: 'No OTP request pending' });
+        }
+        const userCredential = await confirmationResult.confirm(code);
+        const token = await userCredential.user.getIdToken();
+        return JSON.stringify({ success: true, token: token });
+      } catch (e) {
+        return JSON.stringify({ success: false, code: e.code, message: e.message });
+      }
+    };
+  </script>
+  <!-- App name for search crawlers -->
+  <noscript><h1>HappyKrishi Delivery</h1><p>Farm fresh vegetables, dairy &amp; more delivered to your door.</p></noscript>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

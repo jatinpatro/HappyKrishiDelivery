@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -58,9 +59,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final cartCount = ref.watch(cartItemCountProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: AppColors.background,
       body: RefreshIndicator(
-        color: const Color(0xFF2E7D32),
+        color: AppColors.primary,
         onRefresh: () async {
           ref.invalidate(categoriesProvider);
           ref.invalidate(featuredProductsProvider);
@@ -74,7 +75,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               floating: true,
               snap: true,
               pinned: false,
-              backgroundColor: const Color(0xFF2E7D32),
+              backgroundColor: AppColors.primary,
               flexibleSpace: FlexibleSpaceBar(
                 background: _HomeHeader(user: user),
               ),
@@ -99,6 +100,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
             SliverToBoxAdapter(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+                // ── Verification nudge banners ─────────────────────────────
+                if (user != null && !user.phoneVerified)
+                  _VerifyBanner(
+                    icon: Icons.phone_outlined,
+                    message: 'Verify your phone number to access all features.',
+                    color: Colors.orange,
+                    onTap: () => context.push('/auth/verify?phone=${user.phone}&mode=customer'),
+                  ),
+                if (user != null && user.phoneVerified && user.email != null && !user.emailVerified)
+                  _VerifyBanner(
+                    icon: Icons.email_outlined,
+                    message: 'Verify your email for free OTP logins.',
+                    color: Colors.indigo,
+                    onTap: () => context.push('/auth/verify-email?next=/home'),
+                  ),
 
                 // ── Search bar ─────────────────────────────────────────────
                 Padding(
@@ -149,7 +166,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       TextButton(
                         onPressed: () => context.go('/products'),
                         style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF2E7D32),
+                            foregroundColor: AppColors.primary,
                             padding: EdgeInsets.zero,
                             minimumSize: Size.zero),
                         child: const Text('All Products →', style: TextStyle(fontSize: 13)),
@@ -199,7 +216,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       TextButton(
                         onPressed: () => context.go('/products'),
                         style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF2E7D32),
+                            foregroundColor: AppColors.primary,
                             padding: EdgeInsets.zero,
                             minimumSize: Size.zero),
                         child: const Text('See all →', style: TextStyle(fontSize: 13)),
@@ -267,7 +284,7 @@ class _HomeHeader extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1B5E20), Color(0xFF2E7D32), Color(0xFF43A047)],
+          colors: [AppColors.primaryDark, AppColors.primary, Color(0xFF43A047)],
         ),
       ),
       padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
@@ -417,11 +434,11 @@ class _CategoryCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               child: cat.imageUrl != null
                   ? CachedNetworkImage(
-                      imageUrl: '${Endpoints.baseUrl}${cat.imageUrl}',
+                      imageUrl: cat.imageUrl != null && cat.imageUrl!.startsWith('http') ? cat.imageUrl! : Endpoints.imageUrl(cat.imageUrl),
                       fit: BoxFit.cover,
                       width: double.infinity,
                       placeholder: (context, url) => Container(
-                          color: const Color(0xFFE8F5E9),
+                          color: const Color(0xFFEAF2EA),
                           child: const Center(
                               child: Icon(Icons.image_outlined,
                                   color: Colors.grey, size: 24))),
@@ -445,12 +462,12 @@ class _CategoryCard extends StatelessWidget {
   }
 
   Widget _fallbackAvatar(Category cat) => Container(
-    color: const Color(0xFFE8F5E9),
+    color: const Color(0xFFEAF2EA),
     child: Center(
       child: Text(cat.icon ?? cat.name.substring(0, 1).toUpperCase(),
           style: TextStyle(
               fontSize: cat.icon != null ? 28 : 22,
-              color: const Color(0xFF2E7D32),
+              color: AppColors.primary,
               fontWeight: FontWeight.bold)),
     ),
   );
@@ -490,20 +507,20 @@ class _ProductCard extends ConsumerWidget {
               child: Stack(fit: StackFit.expand, children: [
                 p.imageUrl != null
                     ? CachedNetworkImage(
-                        imageUrl: '${Endpoints.baseUrl}${p.imageUrl}',
+                        imageUrl: Endpoints.imageUrl(p.imageUrl),
                         fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(color: const Color(0xFFE8F5E9),
+                        placeholder: (context, url) => Container(color: const Color(0xFFEAF2EA),
                             child: const Center(child: Icon(Icons.eco,
-                                color: Color(0xFF2E7D32), size: 36))),
+                                color: AppColors.primary, size: 36))),
                         errorWidget: (context, url, error) => Container(
-                            color: const Color(0xFFE8F5E9),
+                            color: const Color(0xFFEAF2EA),
                             child: const Center(child: Icon(Icons.eco,
-                                color: Color(0xFF2E7D32), size: 36))),
+                                color: AppColors.primary, size: 36))),
                       )
                     : Container(
-                        color: const Color(0xFFE8F5E9),
+                        color: const Color(0xFFEAF2EA),
                         child: const Center(child: Icon(Icons.eco,
-                            color: Color(0xFF2E7D32), size: 36))),
+                            color: AppColors.primary, size: 36))),
 
                 // Out of stock overlay
                 if (outOfStock)
@@ -537,7 +554,7 @@ class _ProductCard extends ConsumerWidget {
                     child: Container(
                       width: 22, height: 22,
                       decoration: const BoxDecoration(
-                          color: Color(0xFF2E7D32), shape: BoxShape.circle),
+                          color: AppColors.primary, shape: BoxShape.circle),
                       child: const Icon(Icons.check, color: Colors.white, size: 13),
                     ),
                   ),
@@ -557,7 +574,7 @@ class _ProductCard extends ConsumerWidget {
               ),
               const SizedBox(height: 2),
               Text('₹${p.pricePerUnit}/${p.unit}',
-                  style: const TextStyle(color: Color(0xFF2E7D32),
+                  style: const TextStyle(color: AppColors.primary,
                       fontWeight: FontWeight.bold, fontSize: 12)),
               const SizedBox(height: 2),
               // Stock info
@@ -615,7 +632,7 @@ class _ProductCard extends ConsumerWidget {
                 Container(
                   height: 32,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
+                    color: const Color(0xFFEAF2EA),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(children: [
@@ -634,7 +651,7 @@ class _ProductCard extends ConsumerWidget {
                       child: Center(
                         child: Text('${qty.toStringAsFixed(1)} ${p.unit}',
                             style: const TextStyle(fontWeight: FontWeight.bold,
-                                fontSize: 11, color: Color(0xFF2E7D32))),
+                                fontSize: 11, color: AppColors.primary)),
                       ),
                     ),
                     _StepBtn(
@@ -667,7 +684,7 @@ class _StepBtn extends StatelessWidget {
       child: Container(
         width: 30, height: 32,
         decoration: BoxDecoration(
-            color: const Color(0xFF2E7D32),
+            color: AppColors.primary,
             borderRadius: BorderRadius.circular(8)),
         child: Icon(icon, color: Colors.white, size: 16),
       ),
@@ -792,7 +809,7 @@ class _TierInfoSheetState extends ConsumerState<_TierInfoSheet> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(children: [
-            const Icon(Icons.workspace_premium, color: Color(0xFF2E7D32)),
+            const Icon(Icons.workspace_premium, color: AppColors.primary),
             const SizedBox(width: 8),
             const Expanded(child: Text('Membership Tiers',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
@@ -870,16 +887,16 @@ class _TierInfoSheetState extends ConsumerState<_TierInfoSheet> {
         Container(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           decoration: BoxDecoration(
-            color: const Color(0xFFE8F5E9),
+            color: const Color(0xFFEAF2EA),
             border: Border(top: BorderSide(color: Colors.grey.shade200)),
           ),
           child: const Row(children: [
-            Icon(Icons.info_outline, color: Color(0xFF2E7D32), size: 18),
+            Icon(Icons.info_outline, color: AppColors.primary, size: 18),
             SizedBox(width: 8),
             Expanded(
               child: Text(
                 'Top up your wallet to upgrade. Tiers update automatically when your balance changes.',
-                style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32)),
+                style: TextStyle(fontSize: 12, color: AppColors.primary),
               ),
             ),
           ]),
@@ -907,5 +924,40 @@ class _InfoChip extends StatelessWidget {
       const SizedBox(width: 3),
       Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
     ]),
+  );
+}
+
+class _VerifyBanner extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  final Color color;
+  final VoidCallback onTap;
+  const _VerifyBanner({required this.icon, required this.message, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+    child: Material(
+      color: color.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
+          ),
+          child: Row(children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message,
+                style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w500))),
+            Icon(Icons.arrow_forward_ios, color: color, size: 12),
+          ]),
+        ),
+      ),
+    ),
   );
 }

@@ -15,10 +15,16 @@ router.post('/email-login', c.emailLogin);
 router.post('/register', authenticate, c.register);
 router.get('/me', authenticate, c.getMe);
 router.patch('/profile', authenticate, c.updateProfile);
-router.post('/set-password', authenticate, c.setPassword);           // first-time set
-router.post('/change-password/request-otp', authenticate, c.requestChangePasswordOtp);  // step 1
-router.post('/change-password', authenticate, c.changePassword);     // step 2
+router.post('/set-password', authenticate, c.setPassword);
+router.post('/change-password/request-otp', authenticate, c.requestChangePasswordOtp);
+router.post('/change-password', authenticate, c.changePassword);
 router.post('/fcm-token', authenticate, c.saveFcmToken);
+router.post('/send-email-verification', authenticate, c.sendEmailVerification);
+router.post('/verify-email', authenticate, c.verifyEmailOtp);
+router.post('/change-phone/request-otp', authenticate, c.requestPhoneChange);
+router.post('/change-phone/confirm', authenticate, c.confirmPhoneChange);
+router.post('/change-phone/firebase-confirm', authenticate, c.changePhoneFirebaseConfirm);
+router.post('/verify-firebase-phone', c.verifyFirebasePhone);
 
 // Dev-only: see latest OTP (only when MSG91_AUTH_KEY is not set)
 router.get('/dev-otp/:phone', (req, res) => {

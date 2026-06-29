@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -49,6 +50,39 @@ class ProfileScreen extends ConsumerWidget {
           await ref.read(authStateProvider.notifier).refreshUser();
         },
         child: ListView(padding: const EdgeInsets.all(16), children: [
+
+        // ── Verification banners ───────────────────────────────────────────
+        if (user != null && !user.phoneVerified)
+          _VerifyBanner(
+            icon: Icons.phone_outlined,
+            message: 'Verify your phone number to access all features.',
+            color: Colors.orange,
+            onTap: () => context.push('/auth/verify?phone=${user.phone}&mode=customer'),
+          ),
+        if (user != null && user.phoneVerified && user.email != null && !user.emailVerified)
+          _VerifyBanner(
+            icon: Icons.email_outlined,
+            message: 'Verify your email for free OTP logins.',
+            color: Colors.indigo,
+            onTap: () => context.push('/auth/verify-email?next=/profile'),
+          ),
+        if (user != null && (user.phoneVerified || user.email == null) && user.emailVerified)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: const Row(children: [
+              Icon(Icons.verified_outlined, color: Colors.green, size: 16),
+              SizedBox(width: 10),
+              Text('Phone & email verified — free OTP logins active.',
+                  style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w500)),
+            ]),
+          ),
+
         // User info card
         Card(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -57,7 +91,7 @@ class ProfileScreen extends ConsumerWidget {
             child: Row(children: [
               CircleAvatar(
                 radius: 32,
-                backgroundColor: const Color(0xFF2E7D32),
+                backgroundColor: AppColors.primary,
                 child: Text(
                   user?.name.isNotEmpty == true
                       ? user!.name.substring(0, 1).toUpperCase()
@@ -98,7 +132,7 @@ class ProfileScreen extends ConsumerWidget {
                 ]),
               ),
               IconButton(
-                icon: const Icon(Icons.edit_outlined, color: Color(0xFF2E7D32)),
+                icon: const Icon(Icons.edit_outlined, color: AppColors.primary),
                 tooltip: 'Edit Profile',
                 onPressed: () => _showEditProfileSheet(context, ref, user),
               ),
@@ -155,30 +189,37 @@ class ProfileScreen extends ConsumerWidget {
 
         const SizedBox(height: 24),
         OutlinedButton.icon(
-          icon: const Icon(Icons.location_searching, color: Color(0xFF2E7D32)),
+          icon: const Icon(Icons.location_searching, color: AppColors.primary),
           label: const Text('My Delivery Area Requests',
-              style: TextStyle(color: Color(0xFF2E7D32))),
+              style: TextStyle(color: AppColors.primary)),
           onPressed: () => context.push('/request-delivery'),
         ),
         const SizedBox(height: 10),
         OutlinedButton.icon(
-          icon: const Icon(Icons.card_giftcard_outlined, color: Color(0xFF2E7D32)),
+          icon: const Icon(Icons.card_giftcard_outlined, color: AppColors.primary),
           label: const Text('Referral Program',
-              style: TextStyle(color: Color(0xFF2E7D32))),
+              style: TextStyle(color: AppColors.primary)),
           onPressed: () => context.push('/referral'),
         ),
         const SizedBox(height: 10),
         OutlinedButton.icon(
-          icon: const Icon(Icons.lock_reset, color: Color(0xFF2E7D32)),
+          icon: const Icon(Icons.phone_outlined, color: AppColors.primary),
+          label: const Text('Change Phone Number',
+              style: TextStyle(color: AppColors.primary)),
+          onPressed: () => _showChangePhoneSheet(context, ref),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.lock_reset, color: AppColors.primary),
           label: const Text('Change Password',
-              style: TextStyle(color: Color(0xFF2E7D32))),
+              style: TextStyle(color: AppColors.primary)),
           onPressed: () => context.push('/auth/change-password'),
         ),
         const SizedBox(height: 10),
         OutlinedButton.icon(
-          icon: const Icon(Icons.info_outline, color: Color(0xFF2E7D32)),
+          icon: const Icon(Icons.info_outline, color: AppColors.primary),
           label: const Text('Delivery Info & Contact',
-              style: TextStyle(color: Color(0xFF2E7D32))),
+              style: TextStyle(color: AppColors.primary)),
           onPressed: () => context.push('/info'),
         ),
         const SizedBox(height: 10),
@@ -192,6 +233,133 @@ class ProfileScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 24),
       ]),
+      ),
+    );
+  }
+
+  void _showChangePhoneSheet(BuildContext context, WidgetRef ref) {
+    final phoneCtrl = TextEditingController();
+    final otpCtrl   = TextEditingController();
+    bool step1 = true;
+    bool loading = false;
+    String? pendingPhone;
+    String? otpSentTo;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.only(
+              left: 24, right: 24, top: 24,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Change Phone Number',
+                style: Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              step1
+                  ? 'Enter your new phone number. An OTP will be sent to verify it.'
+                  : otpSentTo ?? 'Enter the OTP to confirm +91 $pendingPhone',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 20),
+
+            if (step1) ...[
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                maxLength: 10,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'New Phone Number',
+                  prefixText: '+91 ',
+                  counterText: '',
+                  prefixIcon: Icon(Icons.phone_outlined),
+                ),
+              ),
+            ] else ...[
+              TextField(
+                controller: otpCtrl,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                autofocus: true,
+                style: const TextStyle(fontSize: 24, letterSpacing: 8),
+                textAlign: TextAlign.center,
+                decoration: const InputDecoration(
+                  labelText: 'OTP',
+                  counterText: '',
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: loading ? null : () async {
+                  setModalState(() => loading = true);
+                  try {
+                    final dio = ref.read(dioProvider);
+                    if (step1) {
+                      final phone = phoneCtrl.text.trim();
+                      if (phone.length != 10) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Enter a valid 10-digit number')));
+                        return;
+                      }
+                      pendingPhone = phone;
+                      final otpRes = await dio.post(Endpoints.changePhoneRequestOtp, data: {'phone': phone});
+                      final channel = otpRes.data['channel'] as String? ?? 'sms';
+                      final sentMsg = channel == 'email'
+                          ? 'OTP sent to your registered email'
+                          : 'OTP sent to +91 $phone';
+                      setModalState(() { step1 = false; otpSentTo = sentMsg; });
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(sentMsg)));
+                    } else {
+                      final res = await dio.post(Endpoints.changePhoneConfirm,
+                          data: {'phone': pendingPhone, 'code': otpCtrl.text.trim()});
+                      final user = AppUser.fromJson(res.data['user']);
+                      ref.read(authStateProvider.notifier).updateUser(user);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Phone number updated ✅'),
+                              backgroundColor: AppColors.primary));
+                    }
+                  } on DioException catch (e) {
+                    final data = e.response?.data;
+                    String msg = data?['error'] as String? ?? 'Failed';
+                    final resetIn = data?['reset_in_seconds'] as int?;
+                    if (resetIn != null) {
+                      final mins = (resetIn / 60).ceil();
+                      msg += '\n\nTry again in $mins minute${mins != 1 ? 's' : ''}.';
+                    }
+                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(msg), duration: const Duration(seconds: 6)));
+                  } finally {
+                    setModalState(() => loading = false);
+                  }
+                },
+                child: loading
+                    ? const SizedBox(width: 20, height: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text(step1 ? 'Send OTP' : 'Verify & Update'),
+              ),
+            ),
+            if (!step1) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton(
+                  onPressed: () => setModalState(() { step1 = true; otpCtrl.clear(); }),
+                  child: const Text('← Change number'),
+                ),
+              ),
+            ],
+          ]),
+        ),
       ),
     );
   }
@@ -266,7 +434,7 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Profile updated ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -488,7 +656,7 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
           content: Text(widget.existing != null
               ? 'Address updated ✅'
               : 'Address saved ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -596,11 +764,11 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
             const SizedBox(height: 8),
             if (_lat != null && _lng != null)
               Row(children: [
-                const Icon(Icons.location_pin, size: 16, color: Color(0xFF2E7D32)),
+                const Icon(Icons.location_pin, size: 16, color: AppColors.primary),
                 const SizedBox(width: 6),
                 const Expanded(
                   child: Text('Location pinned',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32),
+                      style: TextStyle(fontSize: 12, color: AppColors.primary,
                           fontWeight: FontWeight.w500)),
                 ),
                 TextButton(
@@ -640,8 +808,8 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
                     }
                   },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF2E7D32),
-                    side: const BorderSide(color: Color(0xFF2E7D32)),
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     textStyle: const TextStyle(fontSize: 13),
                   ),
@@ -717,7 +885,7 @@ class _AddressSheetState extends ConsumerState<_AddressSheet> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             value: _isDefault,
-          activeThumbColor: const Color(0xFF2E7D32),
+          activeThumbColor: AppColors.primary,
             title: const Text('Set as default address',
                 style: TextStyle(fontSize: 14)),
             subtitle: const Text('Used automatically at checkout',
@@ -762,7 +930,7 @@ class _AddressTile extends ConsumerWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: address.isDefault
-            ? const BorderSide(color: Color(0xFF2E7D32), width: 1.5)
+            ? const BorderSide(color: AppColors.primary, width: 1.5)
             : BorderSide(color: Colors.grey.shade200),
       ),
       child: Padding(
@@ -773,7 +941,7 @@ class _AddressTile extends ConsumerWidget {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: address.isDefault
-                  ? const Color(0xFFE8F5E9)
+                  ? const Color(0xFFEAF2EA)
                   : Colors.grey.shade100,
               shape: BoxShape.circle,
             ),
@@ -782,7 +950,7 @@ class _AddressTile extends ConsumerWidget {
                   ? Icons.business_outlined
                   : Icons.home_outlined,
               color: address.isDefault
-                  ? const Color(0xFF2E7D32)
+                  ? AppColors.primary
                   : Colors.grey,
               size: 18,
             ),
@@ -800,7 +968,7 @@ class _AddressTile extends ConsumerWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                        color: const Color(0xFF2E7D32),
+                        color: AppColors.primary,
                         borderRadius: BorderRadius.circular(8)),
                     child: const Text('Default',
                         style: TextStyle(
@@ -824,7 +992,7 @@ class _AddressTile extends ConsumerWidget {
           Column(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
               icon: const Icon(Icons.edit_outlined,
-                  size: 18, color: Color(0xFF2E7D32)),
+                  size: 18, color: AppColors.primary),
               tooltip: 'Edit',
               onPressed: () => showModalBottomSheet(
                 context: context,
@@ -889,4 +1057,39 @@ class _AddressTile extends ConsumerWidget {
       }
     }
   }
+}
+
+class _VerifyBanner extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  final Color color;
+  final VoidCallback onTap;
+  const _VerifyBanner({required this.icon, required this.message, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Material(
+      color: color.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
+          ),
+          child: Row(children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message,
+                style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w500))),
+            Icon(Icons.arrow_forward_ios, color: color, size: 12),
+          ]),
+        ),
+      ),
+    ),
+  );
 }

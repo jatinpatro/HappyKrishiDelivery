@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -68,7 +69,7 @@ class _EmailSignupScreenState extends ConsumerState<EmailSignupScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Account created! Please verify your phone number.'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
         context.go('/auth/verify?phone=$returnedPhone&mode=customer');
       }
@@ -100,7 +101,7 @@ class _EmailSignupScreenState extends ConsumerState<EmailSignupScreen> {
       helpText: 'Select Date of Birth',
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32)),
+          colorScheme: const ColorScheme.light(primary: AppColors.primary),
         ),
         child: child!,
       ),
@@ -128,10 +129,10 @@ class _EmailSignupScreenState extends ConsumerState<EmailSignupScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Header
-          const Icon(Icons.agriculture, size: 48, color: Color(0xFF2E7D32)),
+          const Icon(Icons.agriculture, size: 48, color: AppColors.primary),
           const SizedBox(height: 8),
           const Text('Join HappyKrishi',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
           const Text('Fresh farm products delivered to your door',
               style: TextStyle(color: Colors.grey, fontSize: 13)),
           const SizedBox(height: 24),

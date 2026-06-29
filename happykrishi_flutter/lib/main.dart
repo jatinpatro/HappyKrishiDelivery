@@ -9,6 +9,7 @@ import 'core/api/dio_client.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'core/providers/locale_provider.dart';
+import 'firebase_options.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -19,9 +20,14 @@ void main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: binding);
 
-  // Firebase init (web skips gracefully)
+  // Firebase init — web uses explicit options, Android/iOS use bundled config files
   try {
-    await Firebase.initializeApp();
+    final opts = firebaseOptions;
+    if (opts != null) {
+      await Firebase.initializeApp(options: opts);
+    } else {
+      await Firebase.initializeApp();
+    }
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } catch (_) {}
 

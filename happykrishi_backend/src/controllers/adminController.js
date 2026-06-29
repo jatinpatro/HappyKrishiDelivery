@@ -566,7 +566,7 @@ function approveTopup(req, res) {
 }
 
 function adminListProducts(req, res) {
-  const { search, category_id, stock } = req.query;
+  const { search, category_id, stock, is_active } = req.query;
 
   let where = '1=1';
   const params = [];
@@ -585,6 +585,11 @@ function adminListProducts(req, res) {
     where += ' AND p.stock_qty > 0 AND p.stock_qty <= p.low_stock_threshold';
   } else if (stock === 'ok') {
     where += ' AND p.stock_qty > p.low_stock_threshold';
+  }
+  if (is_active === '1') {
+    where += ' AND p.is_active = 1';
+  } else if (is_active === '0') {
+    where += ' AND p.is_active = 0';
   }
 
   const products = db.prepare(`

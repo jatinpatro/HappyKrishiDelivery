@@ -97,7 +97,20 @@ ssh $SSH_OPTS ${REMOTE_USER}@${REMOTE_HOST} "
 log "✓ Server prepared"
 
 ##################################
-# SYNC BACKEND (never touches data/)
+# PROTECT UPLOADS — backup before sync, restore after
+##################################
+log "Protecting uploads folder..."
+ssh $SSH_OPTS ${REMOTE_USER}@${REMOTE_HOST} "
+  if [ -d ${BACKEND_DIR}/uploads ] && [ \"\$(ls -A ${BACKEND_DIR}/uploads 2>/dev/null)\" ]; then
+    cp -r ${BACKEND_DIR}/uploads /tmp/happykrishi_uploads_backup
+    echo '[Server] Uploads backed up: '\$(find /tmp/happykrishi_uploads_backup -type f | wc -l)' files'
+  else
+    echo '[Server] Uploads folder empty or missing — nothing to backup'
+  fi
+"
+
+##################################
+# SYNC BACKEND (never touches data/ or uploads/)
 ##################################
 log "Syncing backend..."
 rsync -az --delete \
@@ -105,12 +118,21 @@ rsync -az --delete \
   --exclude logs \
   --exclude '*.pid' \
   --exclude 'data/' \
-  --filter='protect uploads/***' \
   --exclude 'uploads/' \
   -e "ssh ${SSH_OPTS}" \
   "${BACKEND_SRC}/" \
   ${REMOTE_USER}@${REMOTE_HOST}:${BACKEND_DIR}/
 log "✓ Backend synced"
+
+# Restore uploads after sync
+ssh $SSH_OPTS ${REMOTE_USER}@${REMOTE_HOST} "
+  if [ -d /tmp/happykrishi_uploads_backup ]; then
+    cp -r /tmp/happykrishi_uploads_backup/. ${BACKEND_DIR}/uploads/
+    rm -rf /tmp/happykrishi_uploads_backup
+    echo '[Server] Uploads restored: '\$(find ${BACKEND_DIR}/uploads -type f | wc -l)' files'
+  fi
+"
+log "✓ Uploads protected"
 
 ##################################
 # SYNC FLUTTER WEB

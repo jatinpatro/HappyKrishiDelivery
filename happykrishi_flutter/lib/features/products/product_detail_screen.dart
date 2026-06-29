@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -56,8 +57,8 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
             ],
             flexibleSpace: FlexibleSpaceBar(
               background: product.imageUrl != null
-                  ? Image.network('${Endpoints.baseUrl}${product.imageUrl}', fit: BoxFit.cover)
-                  : Container(color: const Color(0xFFE8F5E9), child: const Center(child: Icon(Icons.eco, size: 80, color: Color(0xFF2E7D32)))),
+                  ? Image.network(Endpoints.imageUrl(product.imageUrl), fit: BoxFit.cover)
+                  : Container(color: const Color(0xFFEAF2EA), child: const Center(child: Icon(Icons.eco, size: 80, color: AppColors.primary))),
             ),
           ),
           SliverToBoxAdapter(
@@ -66,7 +67,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Expanded(child: Text(product.name, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold))),
-                  Text('₹${product.pricePerUnit}/${product.unit}', style: const TextStyle(color: Color(0xFF2E7D32), fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('₹${product.pricePerUnit}/${product.unit}', style: const TextStyle(color: AppColors.primary, fontSize: 18, fontWeight: FontWeight.bold)),
                 ]),
                 const SizedBox(height: 8),
                 if (product.isWeightAdjusted)
@@ -110,7 +111,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                 ]),
                 const SizedBox(height: 8),
                 Text('Estimated: ₹${(product.pricePerUnit * displayQty).toStringAsFixed(2)}',
-                    style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold, fontSize: 16)),
+                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 24),
                 if (product.stockQty <= 0)
                   Container(
