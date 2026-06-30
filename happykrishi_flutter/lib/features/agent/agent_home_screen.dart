@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -62,10 +63,10 @@ class _ActiveDeliveryCard extends ConsumerWidget {
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Card(
-          color: const Color(0xFFE8F5E9),
+          color: const Color(0xFFEAF2EA),
           child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              const Icon(Icons.local_shipping, color: Color(0xFF2E7D32)),
+              const Icon(Icons.local_shipping, color: AppColors.primary),
               const SizedBox(width: 8),
               Text('Order #${delivery['order_number']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ]),

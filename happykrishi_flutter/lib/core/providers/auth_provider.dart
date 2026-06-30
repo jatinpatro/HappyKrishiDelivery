@@ -25,7 +25,12 @@ final authStateProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
 class AuthNotifier extends StateNotifier<AuthState> {
   final Dio _dio;
   AuthNotifier(this._dio) : super(const AuthState()) {
+    setForceLogoutCallback(_forceLogout);
     _tryRestore();
+  }
+
+  void _forceLogout() {
+    state = const AuthState(isInitialized: true);
   }
 
   Future<void> _tryRestore() async {

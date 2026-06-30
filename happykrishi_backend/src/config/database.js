@@ -616,5 +616,6 @@ try { db.exec("UPDATE users SET phone_verified=1 WHERE role='customer' AND is_ac
 try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('sms_otp_cost', '2')"); } catch (_) {}
 try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('otp_rate_limit_per_hour', '5')"); } catch (_) {}
 try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('otp_rate_limit_per_day', '10')"); } catch (_) {}
+try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('low_wallet_warning_threshold', '100')"); } catch (_) {}
 
 module.exports = db;

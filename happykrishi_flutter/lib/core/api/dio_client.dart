@@ -1,9 +1,14 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'endpoints.dart';
 
 // Single cached instance — set once at app startup from main.dart
 SharedPreferences? _prefs;
+
+// Called by authStateProvider after init so Dio can trigger logout on 401
+VoidCallback? _onForceLogout;
+void setForceLogoutCallback(VoidCallback cb) => _onForceLogout = cb;
 
 void initDioClient(SharedPreferences prefs) {
   _prefs = prefs;
@@ -26,6 +31,7 @@ Dio buildDioClient() {
     onError: (error, handler) {
       if (error.response?.statusCode == 401) {
         _prefs?.remove('jwt_token');
+        _onForceLogout?.call();
       }
       handler.next(error);
     },

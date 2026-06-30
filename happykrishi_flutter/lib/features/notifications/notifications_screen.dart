@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -50,8 +51,8 @@ class NotificationsScreen extends ConsumerWidget {
                     final n = list[i];
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: n.isRead ? Colors.grey.shade200 : const Color(0xFFE8F5E9),
-                        child: Icon(Icons.notifications, color: n.isRead ? Colors.grey : const Color(0xFF2E7D32)),
+                        backgroundColor: n.isRead ? Colors.grey.shade200 : const Color(0xFFEAF2EA),
+                        child: Icon(Icons.notifications, color: n.isRead ? Colors.grey : AppColors.primary),
                       ),
                       title: Text(n.title, style: TextStyle(fontWeight: n.isRead ? FontWeight.normal : FontWeight.bold)),
                       subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

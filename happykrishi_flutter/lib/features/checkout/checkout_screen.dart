@@ -1,13 +1,16 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:latlong2/latlong.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../info/app_info_screen.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/widgets/location_picker_screen.dart';
 
 // Lightweight all-products provider for the pincode rules banner
 final _allProductsProvider = FutureProvider.autoDispose<List<Product>>((ref) async {
@@ -77,9 +80,22 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String _deliveryDate = _nextDay();
   double? _deliveryCharge;
   bool _fetchingCharge = false;
+  bool _deliveryBlocked = false;
+  String? _blockedMessage;
   bool _loading = false;
   bool _showAddAddressForm = false;
-  int? _selectedSalesmanId; // for pickup orders
+  int? _selectedSalesmanId;
+
+  // Promo coupon state
+  final _couponCtrl   = TextEditingController();
+  bool _showCouponField = false;
+  String? _appliedCoupon;
+  double _couponDiscount = 0;
+  String? _couponLabel;
+  bool _checkingCoupon = false;
+  String? _couponError;
+  // Per-item discount breakdown: product_id → {discount, discounted_line_total}
+  Map<int, Map<String, dynamic>> _itemDiscounts = {};
 
   // New address form controllers
   final _labelCtrl = TextEditingController(text: 'Home');
@@ -92,6 +108,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   bool? _pincodeDeliverable;   // null = unchecked, true = ok, false = out of range
   String _pincodeMsg = '';
   String? _lastCheckedPincode;
+  double? _pincodeLat;
+  double? _pincodeLng;
+  double? _addrLat;
+  double? _addrLng;
 
   static String _nextDay() {
     final d = DateTime.now().add(const Duration(days: 1));
@@ -115,7 +135,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Future<void> _fetchDeliveryCharge(int addressId, double subtotal) async {
-    setState(() { _fetchingCharge = true; _deliveryCharge = null; });
+    setState(() { _fetchingCharge = true; _deliveryCharge = null; _deliveryBlocked = false; _blockedMessage = null; });
     try {
       final dio = ref.read(dioProvider);
       final res = await dio.get(
@@ -123,10 +143,16 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         queryParameters: {'address_id': addressId, 'subtotal': subtotal},
       );
       if (mounted) {
-        setState(() => _deliveryCharge = (res.data['delivery_charge'] as num).toDouble());
+        final data = res.data as Map<String, dynamic>;
+        final blocked = data['blocked'] == true;
+        setState(() {
+          _deliveryBlocked = blocked;
+          _blockedMessage = data['blocked_message'] as String?;
+          _deliveryCharge = blocked ? null : (data['delivery_charge'] as num?)?.toDouble();
+        });
       }
     } catch (_) {
-      if (mounted) setState(() => _deliveryCharge = 30); // fallback base charge
+      if (mounted) setState(() { _deliveryCharge = 30; _deliveryBlocked = false; });
     } finally {
       if (mounted) setState(() => _fetchingCharge = false);
     }
@@ -146,10 +172,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       final deliverable = data['deliverable'] as bool?;
       final distKm = data['distance_km'] as num?;
       final district = data['district'] as String? ?? '';
+      final pLat = (data['lat'] as num?)?.toDouble();
+      final pLng = (data['lng'] as num?)?.toDouble();
       if (mounted) setState(() {
         _lastCheckedPincode = pincode;
         _checkingPincode = false;
         _pincodeDeliverable = deliverable;
+        _pincodeLat = pLat;
+        _pincodeLng = pLng;
         _pincodeMsg = deliverable == true
             ? '✓ Deliverable${district.isNotEmpty ? ' — $district' : ''}${distKm != null ? ' (${distKm}km)' : ''}'
             : deliverable == false
@@ -186,6 +216,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         'address_line': _lineCtrl.text.trim(),
         'city': _cityCtrl.text.trim(),
         'pincode': _pincodeCtrl.text.trim().isEmpty ? null : _pincodeCtrl.text.trim(),
+        if (_addrLat != null) 'lat': _addrLat,
+        if (_addrLng != null) 'lng': _addrLng,
       });
       final newAddress = Address.fromJson(res.data['address']);
       ref.invalidate(checkoutAddressesProvider);
@@ -200,11 +232,241 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         _pincodeDeliverable = null;
         _pincodeMsg = '';
         _lastCheckedPincode = null;
+        _pincodeLat = null;
+        _pincodeLng = null;
+        _addrLat = null;
+        _addrLng = null;
       });
       _fetchDeliveryCharge(newAddress.id, ref.read(cartSubtotalProvider));
     } on DioException catch (e) {
       _show(e.response?.data['error'] ?? 'Failed to add address');
     }
+  }
+
+  Future<void> _openCouponSheet(BuildContext context) async {
+    _couponCtrl.clear();
+    setState(() => _couponError = null);
+
+    // Load available codes with current subtotal for sorting
+    List<Map<String, dynamic>> availableCodes = [];
+    try {
+      final subtotal = ref.read(cartSubtotalProvider);
+      final res = await ref.read(dioProvider).get(Endpoints.promoAvailable,
+          queryParameters: {'subtotal': subtotal});
+      availableCodes = List<Map<String, dynamic>>.from(res.data['codes'] ?? []);
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) {
+          // Read from state — updated via setSt after _validateCoupon
+          final String? sheetError = _couponError;
+          bool applying = _checkingCoupon;
+
+          Future<void> applyCode(String code) async {
+            if (code.isEmpty) return;
+            setSt(() {});
+            _couponCtrl.text = code;
+            await _validateCoupon();
+            setSt(() {}); // refresh to show _couponError / _checkingCoupon
+            if (_appliedCoupon != null && ctx.mounted) Navigator.pop(ctx);
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20,
+                MediaQuery.of(ctx).viewInsets.bottom + 20),
+            child: Column(mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Center(child: Container(width: 36, height: 4,
+                  decoration: BoxDecoration(color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              Row(children: [
+                const Icon(Icons.discount_outlined, color: AppColors.primary),
+                const SizedBox(width: 8),
+                const Text('Promo Codes',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const Spacer(),
+                IconButton(icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx)),
+              ]),
+
+              // ── Available codes list ────────────────────────────────────
+              if (availableCodes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('Available for you',
+                    style: TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                ...availableCodes.map((c) {
+                  final subtotal = ref.read(cartSubtotalProvider);
+                  // Backend sends computed_discount and can_apply based on subtotal
+                  final canApply = c['can_apply'] as bool? ?? (subtotal >= ((c['min_order_amount'] as num?)?.toDouble() ?? 0));
+                  final minAmt = (c['min_order_amount'] as num?)?.toDouble() ?? 0;
+                  final computedDiscount = (c['computed_discount'] as num?)?.toDouble() ?? 0;
+                  return GestureDetector(
+                    onTap: canApply && !applying ? () => applyCode(c['code'] as String) : null,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: canApply ? AppColors.background : Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: canApply ? AppColors.primary.withValues(alpha: 0.4) : Colors.grey.shade300),
+                      ),
+                      child: Row(children: [
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: canApply ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: canApply ? AppColors.primary : Colors.grey.shade300),
+                              ),
+                              child: Text(c['code'] as String,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 12,
+                                      letterSpacing: 1.5,
+                                      color: canApply ? AppColors.primary : Colors.grey)),
+                            ),
+                            if (canApply && computedDiscount > 0) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                    color: Colors.green.shade50,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.green.shade300)),
+                                child: Text('Save ₹${_amt(computedDiscount)}',
+                                    style: TextStyle(fontSize: 10, color: Colors.green.shade700,
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                            if (!canApply) ...[
+                              const SizedBox(width: 8),
+                              Text('Min ₹${minAmt.toStringAsFixed(0)}',
+                                  style: const TextStyle(fontSize: 11, color: Colors.orange)),
+                            ],
+                          ]),
+                          const SizedBox(height: 4),
+                          Text(c['description'] as String? ?? '',
+                              style: TextStyle(fontSize: 12, color: canApply ? Colors.black87 : Colors.grey)),
+                          if (c['label'] != null && c['label'] != c['code'])
+                            Text(c['label'] as String,
+                                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                        ])),
+                        if (canApply)
+                          applying
+                              ? const SizedBox(width: 16, height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                      ]),
+                    ),
+                  );
+                }),
+                const Divider(height: 20),
+              ],
+
+              // ── Error message ───────────────────────────────────────────
+              if (sheetError != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(children: [
+                    Icon(Icons.error_outline, size: 16, color: Colors.red.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(sheetError!,
+                        style: TextStyle(color: Colors.red.shade700, fontSize: 13))),
+                  ]),
+                ),
+
+              if (availableCodes.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: Text(
+                    'No promo codes available for you right now.',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                    textAlign: TextAlign.center,
+                  )),
+                ),
+            ]),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _validateCoupon() async {
+    final code = _couponCtrl.text.trim().toUpperCase();
+    if (code.isEmpty) return;
+    setState(() { _checkingCoupon = true; _couponError = null; });
+    try {
+      final subtotal = ref.read(cartSubtotalProvider);
+      final cart = ref.read(cartProvider);
+      final res = await ref.read(dioProvider).post(Endpoints.promoValidate,
+          data: {
+            'code': code,
+            'subtotal': subtotal,
+            'product_ids': cart.map((i) => i.product.id).toList(),
+            'cart_items': cart.map((i) => {
+              'product_id': i.product.id,
+              'qty': i.qty,
+              'line_total': i.product.pricePerUnit * i.qty,
+            }).toList(),
+          });
+      setState(() {
+        _appliedCoupon  = code;
+        _couponDiscount = (res.data['discount_amount'] as num).toDouble();
+        _couponLabel    = res.data['label'] as String?;
+        _couponError    = null;
+        _showCouponField = false;
+        // Build per-item discount map
+        final breakdown = res.data['item_breakdown'] as List? ?? [];
+        _itemDiscounts = {
+          for (final item in breakdown)
+            (item['product_id'] as num).toInt(): {
+              'discount': (item['discount'] as num).toDouble(),
+              'discounted_line_total': (item['discounted_line_total'] as num).toDouble(),
+              'is_qualifying': item['is_qualifying'] as bool? ?? false,
+            },
+        };
+      });
+    } on DioException catch (e) {
+      setState(() {
+        _appliedCoupon  = null;
+        _couponDiscount = 0;
+        _couponError    = e.response?.data['error'] ?? 'Invalid coupon';
+      });
+    } finally {
+      if (mounted) setState(() => _checkingCoupon = false);
+    }
+  }
+
+  // Show decimals only when needed: 47.5 → "47.5", 50.0 → "50"
+  static String _amt(double v) =>
+      v == v.truncateToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '');
+
+  void _removeCoupon() {    setState(() {
+      _appliedCoupon  = null;
+      _couponDiscount = 0;
+      _couponLabel    = null;
+      _couponError    = null;
+      _itemDiscounts  = {};
+      _couponCtrl.clear();
+    });
   }
 
   Future<void> _placeOrder() async {
@@ -230,7 +492,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     }
 
     // Warn if this order will push balance negative
-    final total = ref.read(cartSubtotalProvider) + (_deliveryCharge ?? 0);
+    final total = ref.read(cartSubtotalProvider) + (_deliveryCharge ?? 0) - _couponDiscount;
     if (balance < total) {
       final balanceAfter = balance - total;
       final confirmed = await showDialog<bool>(
@@ -261,7 +523,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             ElevatedButton(
                 onPressed: () => Navigator.pop(ctx, true),
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2E7D32)),
+                    backgroundColor: AppColors.primary),
                 child: const Text('Place Anyway')),
           ],
         ),
@@ -280,6 +542,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         if (_orderType == 'pickup' && _selectedSalesmanId != null)
           'preferred_salesman_id': _selectedSalesmanId,
         'items': cart.map((i) => {'product_id': i.product.id, 'qty': i.qty}).toList(),
+        if (_appliedCoupon != null) 'coupon_code': _appliedCoupon,
       });
       ref.read(cartProvider.notifier).clear();
       await ref.read(authStateProvider.notifier).refreshUser();
@@ -288,7 +551,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           content: Text(_orderType == 'pickup'
               ? 'Pickup order placed! We\'ll have it ready for you 🎉'
               : 'Order placed successfully! 🎉'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
         context.go('/orders');
       }
@@ -310,7 +573,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final slots = ref.watch(slotsProvider(_orderType));
     final user = ref.watch(authStateProvider).user;
     final charge = _deliveryCharge ?? 0;
-    final total = subtotal + charge;
+    final total = subtotal + charge - _couponDiscount;
+    // Re-fetch delivery charge whenever subtotal changes (tiers depend on it)
+    ref.listen<double>(cartSubtotalProvider, (prev, next) {
+      if (_orderType == 'delivery' && _selectedAddressId != null && prev != next) {
+        _fetchDeliveryCharge(_selectedAddressId!, next);
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -337,9 +606,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               _deliveryDate = type == 'pickup' ? _today() : _nextDay();
               if (type == 'pickup') {
                 _deliveryCharge = 0;
+                _deliveryBlocked = false;
+                _blockedMessage = null;
                 _selectedAddressId = null;
               } else {
                 _deliveryCharge = null;
+                _deliveryBlocked = false;
+                _blockedMessage = null;
               }
             }),
           ),
@@ -353,7 +626,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ...addrs.map((a) {
                 final selected = _selectedAddressId == a.id;
                 return Card(
-                  color: selected ? const Color(0xFFE8F5E9) : null,
+                  color: selected ? const Color(0xFFEAF2EA) : null,
                   margin: const EdgeInsets.only(bottom: 8),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
@@ -369,13 +642,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       child: Row(children: [
                         Icon(
                           selected ? Icons.radio_button_checked : Icons.radio_button_off,
-                          color: selected ? const Color(0xFF2E7D32) : Colors.grey,
+                          color: selected ? AppColors.primary : Colors.grey,
                         ),
                         const SizedBox(width: 10),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(a.label, style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: selected ? const Color(0xFF2E7D32) : null,
+                            color: selected ? AppColors.primary : null,
                           )),
                           Text('${a.addressLine}, ${a.city}${a.pincode != null ? ' - ${a.pincode}' : ''}',
                               style: const TextStyle(fontSize: 13)),
@@ -384,7 +657,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                                color: const Color(0xFF2E7D32),
+                                color: AppColors.primary,
                                 borderRadius: BorderRadius.circular(8)),
                             child: const Text('Default',
                                 style: TextStyle(color: Colors.white, fontSize: 10)),
@@ -481,6 +754,61 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                           ),
                         ),
                       ],
+                      // Pin exact location after pincode verified
+                      if (_pincodeDeliverable == true && _pincodeLat != null) ...[
+                        const SizedBox(height: 8),
+                        if (_addrLat != null && _addrLng != null)
+                          Row(children: [
+                            const Icon(Icons.location_pin, size: 15, color: AppColors.primary),
+                            const SizedBox(width: 6),
+                            const Expanded(child: Text('Location pinned',
+                                style: TextStyle(fontSize: 12, color: AppColors.primary,
+                                    fontWeight: FontWeight.w500))),
+                            TextButton(
+                              onPressed: () async {
+                                final picked = await Navigator.push<LatLng>(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => LocationPickerScreen(
+                                    initialCenter: LatLng(_pincodeLat!, _pincodeLng!),
+                                    existingPin: LatLng(_addrLat!, _addrLng!),
+                                  )),
+                                );
+                                if (picked != null && mounted) {
+                                  setState(() { _addrLat = picked.latitude; _addrLng = picked.longitude; });
+                                }
+                              },
+                              style: TextButton.styleFrom(
+                                  minimumSize: Size.zero,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2)),
+                              child: const Text('Change', style: TextStyle(fontSize: 12)),
+                            ),
+                          ])
+                        else
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.pin_drop_outlined, size: 15),
+                              label: const Text('Pin your exact location'),
+                              onPressed: () async {
+                                final picked = await Navigator.push<LatLng>(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => LocationPickerScreen(
+                                    initialCenter: LatLng(_pincodeLat!, _pincodeLng!),
+                                  )),
+                                );
+                                if (picked != null && mounted) {
+                                  setState(() { _addrLat = picked.latitude; _addrLng = picked.longitude; });
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: const BorderSide(color: AppColors.primary),
+                                padding: const EdgeInsets.symmetric(vertical: 7),
+                                textStyle: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          ),
+                      ],
                       const SizedBox(height: 8),
                       TextField(controller: _lineCtrl, decoration: const InputDecoration(labelText: 'Address Line *', isDense: true, border: OutlineInputBorder())),
                       const SizedBox(height: 8),
@@ -522,9 +850,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               padding: const EdgeInsets.all(14),
               margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
+                color: const Color(0xFFEAF2EA),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.4)),
+                border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
               ),
               child: Consumer(builder: (_, ref, __) {
                 final info = ref.watch(appInfoProvider);
@@ -533,10 +861,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     final pickup = d['pickup'] as Map<String, dynamic>? ?? {};
                     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       const Row(children: [
-                        Icon(Icons.store, color: Color(0xFF2E7D32)),
+                        Icon(Icons.store, color: AppColors.primary),
                         SizedBox(width: 8),
                         Text('Pickup Location', style: TextStyle(
-                            fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                            fontWeight: FontWeight.bold, color: AppColors.primary)),
                       ]),
                       const SizedBox(height: 8),
                       Text(pickup['name'] as String? ?? 'HappyKrishi Farm',
@@ -556,10 +884,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                         ),
                       const SizedBox(height: 8),
                       const Row(children: [
-                        Icon(Icons.local_shipping_outlined, color: Color(0xFF2E7D32), size: 16),
+                        Icon(Icons.local_shipping_outlined, color: AppColors.primary, size: 16),
                         SizedBox(width: 6),
                         Text('No delivery charge — FREE pickup!',
-                            style: TextStyle(color: Color(0xFF2E7D32),
+                            style: TextStyle(color: AppColors.primary,
                                 fontWeight: FontWeight.w600, fontSize: 13)),
                       ]),
                     ]);
@@ -656,7 +984,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 helpText: 'Select Delivery Date',
                 builder: (ctx, child) => Theme(
                   data: Theme.of(ctx).copyWith(
-                    colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32)),
+                    colorScheme: const ColorScheme.light(primary: AppColors.primary),
                   ),
                   child: child!,
                 ),
@@ -672,12 +1000,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF2E7D32)),
+                border: Border.all(color: AppColors.primary),
                 borderRadius: BorderRadius.circular(12),
-                color: const Color(0xFFF9FBF9),
+                color: AppColors.background,
               ),
               child: Row(children: [
-                const Icon(Icons.calendar_today, color: Color(0xFF2E7D32), size: 20),
+                const Icon(Icons.calendar_today, color: AppColors.primary, size: 20),
                 const SizedBox(width: 12),
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('Delivery Date',
@@ -687,12 +1015,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
-                        color: Color(0xFF2E7D32)),
+                        color: AppColors.primary),
                   ),
                 ]),
                 const Spacer(),
-                const Text('Change', style: TextStyle(color: Color(0xFF2E7D32), fontSize: 13)),
-                const Icon(Icons.chevron_right, color: Color(0xFF2E7D32)),
+                const Text('Change', style: TextStyle(color: AppColors.primary, fontSize: 13)),
+                const Icon(Icons.chevron_right, color: AppColors.primary),
               ]),
             ),
           ),
@@ -700,7 +1028,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             data: (slts) => Column(children: slts.map((s) {
               final selected = _selectedSlotId == s.id;
               return Card(
-                color: selected ? const Color(0xFFE8F5E9) : null,
+                color: selected ? const Color(0xFFEAF2EA) : null,
                 margin: const EdgeInsets.only(bottom: 8),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
@@ -710,13 +1038,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     child: Row(children: [
                       Icon(
                         selected ? Icons.radio_button_checked : Icons.radio_button_off,
-                        color: selected ? const Color(0xFF2E7D32) : Colors.grey,
+                        color: selected ? AppColors.primary : Colors.grey,
                       ),
                       const SizedBox(width: 10),
                       Expanded(child: Text(s.label,
                           style: TextStyle(
                             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                            color: selected ? const Color(0xFF2E7D32) : null,
+                            color: selected ? AppColors.primary : null,
                           ))),
                       Text('${s.startTime} – ${s.endTime}',
                           style: const TextStyle(color: Colors.grey, fontSize: 12)),
@@ -738,15 +1066,92 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             _PincodeRulesBanner(pincode: _selectedAddressPincode),
 
           // ── Order Summary ───────────────────────────────────────────────────
-          DeliveryInfoBanner(subtotal: subtotal),
+          DeliveryInfoBanner(
+            subtotal: subtotal,
+            fetchedCharge: (_orderType == 'delivery' && !_fetchingCharge && !_deliveryBlocked && _selectedAddressId != null)
+                ? _deliveryCharge
+                : null,
+          ),
+
+          // ── Promo / Coupon Code ────────────────────────────────────────────
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _appliedCoupon == null
+                ? () => _openCouponSheet(context)
+                : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              decoration: BoxDecoration(
+                color: _appliedCoupon != null ? Colors.green.shade50 : AppColors.background,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _appliedCoupon != null ? Colors.green.shade300 : Colors.grey.shade300,
+                ),
+              ),
+              child: Row(children: [
+                Icon(Icons.discount_outlined, size: 18,
+                    color: _appliedCoupon != null ? Colors.green : AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _appliedCoupon != null
+                        ? '${_couponLabel ?? _appliedCoupon} — saving ₹${_amt(_couponDiscount)}'
+                        : 'Have a promo code? Tap to enter',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 13,
+                      color: _appliedCoupon != null ? Colors.green.shade700 : AppColors.primary,
+                    ),
+                  ),
+                ),
+                if (_appliedCoupon != null)
+                  GestureDetector(
+                    onTap: _removeCoupon,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                          color: Colors.green.shade100, borderRadius: BorderRadius.circular(20)),
+                      child: const Icon(Icons.close, size: 14, color: Colors.green),
+                    ),
+                  )
+                else
+                  const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 12),
+
           _SectionHeader(title: 'Order Summary'),
-          ...cart.map((i) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Expanded(child: Text('${i.product.name} × ${i.qty.toStringAsFixed(2)} ${i.product.unit}', overflow: TextOverflow.ellipsis)),
-              Text('₹${(i.product.pricePerUnit * i.qty).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w500)),
-            ]),
-          )).toList(),
+          ...cart.map((i) {
+            final lineTotal = i.product.pricePerUnit * i.qty;
+            final itemInfo = _itemDiscounts[i.product.id];
+            final itemDiscount = itemInfo?['discount'] as double? ?? 0;
+            final discountedLine = itemInfo?['discounted_line_total'] as double? ?? lineTotal;
+            final isQualifying = itemInfo?['is_qualifying'] as bool? ?? false;
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: Text('${i.product.name} × ${i.qty.toStringAsFixed(2)} ${i.product.unit}',
+                    overflow: TextOverflow.ellipsis)),
+                const SizedBox(width: 8),
+                if (itemDiscount > 0) ...[
+                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text('₹${lineTotal.toStringAsFixed(0)}',
+                        style: const TextStyle(fontSize: 11, color: Colors.grey,
+                            decoration: TextDecoration.lineThrough)),
+                    Text('₹${_amt(discountedLine)}',
+                        style: const TextStyle(fontWeight: FontWeight.w600,
+                            color: AppColors.primary)),
+                    Text('-₹${_amt(itemDiscount)}',
+                        style: const TextStyle(fontSize: 10, color: Colors.green)),
+                  ]),
+                ] else
+                  Text('₹${lineTotal.toStringAsFixed(0)}',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: isQualifying ? null : Colors.black54)),
+              ]),
+            );
+          }),
           const Divider(height: 16),
 
           // Subtotal
@@ -759,10 +1164,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             const _SummaryRow('Delivery Charge', 'Select address first', valueColor: Colors.grey)
           else if (_fetchingCharge)
             const _SummaryRow('Delivery Charge', 'Calculating...', valueColor: Colors.grey)
+          else if (_deliveryBlocked)
+            _SummaryRow('Delivery Charge', _blockedMessage ?? 'Not available', valueColor: Colors.red)
           else if (_deliveryCharge == 0)
             const _SummaryRow('Delivery Charge', 'FREE 🎉', valueColor: Colors.green)
           else
             _SummaryRow('Delivery Charge', '₹${_deliveryCharge!.toStringAsFixed(0)}'),
+
+          // ── Promo coupon entry ────────────────────────────────────────────
+          // Discount row (shown when coupon applied)
+          if (_appliedCoupon != null)
+            _SummaryRow('Discount (${_appliedCoupon})', '-₹${_amt(_couponDiscount)}',
+                valueColor: Colors.green),
 
           const Divider(height: 12),
           _SummaryRow('Total', '₹${total.toStringAsFixed(2)}', bold: true),
@@ -853,9 +1266,27 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             ),
 
           const SizedBox(height: 20),
+          // Blocked delivery message banner
+          if (_orderType == 'delivery' && _deliveryBlocked && _blockedMessage != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.shade300),
+              ),
+              child: Row(children: [
+                const Icon(Icons.block_outlined, color: Colors.red, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_blockedMessage!,
+                    style: const TextStyle(color: Colors.red, fontSize: 13))),
+              ]),
+            ),
           ElevatedButton(
             onPressed: (_loading ||
                     (user?.tierName == 'Restricted') ||
+                    (_orderType == 'delivery' && _deliveryBlocked) ||
                     (_orderType == 'pickup' && _selectedSalesmanId == null) ||
                     (_orderType == 'delivery' && (_fetchingCharge || _selectedAddressId == null)) ||
                     _selectedSlotId == null)
@@ -890,7 +1321,7 @@ class _SummaryRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         Text(label, style: style),
-        Text(value, style: style.copyWith(color: valueColor ?? (bold ? const Color(0xFF2E7D32) : null))),
+        Text(value, style: style.copyWith(color: valueColor ?? (bold ? AppColors.primary : null))),
       ]),
     );
   }
@@ -951,7 +1382,7 @@ class _TypeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = type == 'pickup' ? Colors.teal : const Color(0xFF2E7D32);
+    final color = type == 'pickup' ? Colors.teal : AppColors.primary;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(

@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -176,7 +177,7 @@ class _RewardsScreenState extends ConsumerState<RewardsScreen>
                               : d['message'] as String? ?? 'No new eligible orders';
                           messenger.showSnackBar(SnackBar(
                             content: Text(msg),
-                            backgroundColor: found > 0 ? const Color(0xFF2E7D32) : Colors.orange,
+                            backgroundColor: found > 0 ? AppColors.primary : Colors.orange,
                             duration: const Duration(seconds: 5),
                           ));
                           if (found > 0) {
@@ -258,7 +259,7 @@ class _RuleTile extends ConsumerWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: isActive ? const Color(0xFF2E7D32).withValues(alpha: 0.2) : Colors.grey.shade200,
+          color: isActive ? AppColors.primary.withValues(alpha: 0.2) : Colors.grey.shade200,
         ),
       ),
       child: Padding(
@@ -270,13 +271,13 @@ class _RuleTile extends ConsumerWidget {
               width: 42, height: 42,
               decoration: BoxDecoration(
                 color: isActive
-                    ? const Color(0xFF2E7D32).withValues(alpha: 0.1)
+                    ? AppColors.primary.withValues(alpha: 0.1)
                     : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 isProduct ? Icons.inventory_2_outlined : Icons.category_outlined,
-                color: isActive ? const Color(0xFF2E7D32) : Colors.grey,
+                color: isActive ? AppColors.primary : Colors.grey,
                 size: 20,
               ),
             ),
@@ -291,7 +292,7 @@ class _RuleTile extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: isActive
-                        ? const Color(0xFF2E7D32)
+                        ? AppColors.primary
                         : Colors.grey.shade400,
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -322,7 +323,7 @@ class _RuleTile extends ConsumerWidget {
               scale: 0.85,
               child: Switch(
                 value: isActive,
-                activeTrackColor: const Color(0xFF2E7D32),
+                activeTrackColor: AppColors.primary,
                 onChanged: (_) async {
                   final dio = ref.read(dioProvider);
                   await dio.put(Endpoints.adminRewardsRule(rule['id'] as int),
@@ -334,7 +335,7 @@ class _RuleTile extends ConsumerWidget {
             Text(isActive ? 'Active' : 'Inactive',
                 style: TextStyle(
                     fontSize: 12,
-                    color: isActive ? const Color(0xFF2E7D32) : Colors.grey)),
+                    color: isActive ? AppColors.primary : Colors.grey)),
             const Spacer(),
             // Duplicate
             _ActionBtn(
@@ -358,7 +359,7 @@ class _RuleTile extends ConsumerWidget {
             _ActionBtn(
               icon: Icons.edit_outlined,
               label: 'Edit',
-              color: const Color(0xFF2E7D32),
+              color: AppColors.primary,
               onTap: () => showDialog(
                 context: context,
                 builder: (ctx) => _AddRuleDialog(onCreated: onToggle, existing: rule),
@@ -467,7 +468,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(res.data['message'] as String),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {
@@ -487,7 +488,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(res.data['message'] as String),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {
@@ -565,7 +566,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
             child: Row(children: [
               ...[('pending', 'Pending', Colors.orange),
-                  ('approved', 'Approved', Color(0xFF2E7D32)),
+                  ('approved', 'Approved', AppColors.primary),
                   ('rejected', 'Rejected', Colors.red),
                   ('', 'All', Colors.grey)]
                   .map((s) => Padding(
@@ -611,7 +612,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
                   label: const Text('Approve All'),
                   onPressed: () => _approveAll(widget.selectedMonth),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white,
+                      backgroundColor: AppColors.primary, foregroundColor: Colors.white,
                       minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9)),
                 ),
               ]),
@@ -634,7 +635,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
                     child: const Text('Reject')),
                 const SizedBox(width: 6),
                 ElevatedButton(onPressed: _approveSelected,
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white,
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white,
                         minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
                     child: const Text('Approve')),
               ]),
@@ -670,7 +671,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
                         final isPending = status == 'pending';
                         final isSelected = _selectedIds.contains(id);
                         final statusColor = status == 'approved'
-                            ? const Color(0xFF2E7D32)
+                            ? AppColors.primary
                             : status == 'rejected' ? Colors.red : Colors.orange;
 
                         return Card(
@@ -687,7 +688,7 @@ class _PayoutsTabState extends ConsumerState<_PayoutsTab> {
                                 if (isPending)
                                   Checkbox(
                                     value: isSelected,
-                                    activeColor: const Color(0xFF2E7D32),
+                                    activeColor: AppColors.primary,
                                     onChanged: (_) => setState(() {
                                       if (isSelected) _selectedIds.remove(id); else _selectedIds.add(id);
                                     }),
@@ -773,7 +774,7 @@ class _MonthChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2E7D32) : Colors.grey.shade100,
+          color: isSelected ? AppColors.primary : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(label.isEmpty ? 'All' : label,
@@ -955,7 +956,7 @@ class _AddRuleDialogState extends ConsumerState<_AddRuleDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(_isEditing ? 'Rule updated ✅' : 'Cashback rule created ✅'),
-                backgroundColor: Color(0xFF2E7D32)));
+                backgroundColor: AppColors.primary));
       }
     } catch (e, st) {
       logError('admin-rewards', e, st);

@@ -234,6 +234,13 @@ function verifyOtp(req, res) {
   // Refresh user to get updated fields
   const updatedUser = db.prepare('SELECT * FROM users WHERE id=?').get(user.id);
 
+  // Notify admins of new customer signup
+  if (isNew) {
+    notificationService.sendToAdmins('🆕 New Customer Joined',
+      `${updatedUser.name || 'A new customer'} (${phone}) just signed up.`,
+      { type: 'new_customer' });
+  }
+
   // Check if referral was auto-credited on this signup
   const referralCredited = isNew && (() => {
     const c = db.prepare(`SELECT signup_credit_amount FROM referral_coupons

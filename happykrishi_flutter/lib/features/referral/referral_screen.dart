@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,7 +58,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Generate Code'),
           ),
         ],
@@ -77,7 +78,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Invite code created for +91 $phone — share it with them!'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
       // Also offer to share via WhatsApp immediately
@@ -165,7 +166,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Referral Program'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: () => ref.invalidate(_referralInfoProvider)),
@@ -196,12 +197,12 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
+                  color: const Color(0xFFEAF2EA),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.3)),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('How it works', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1B5E20))),
+                  const Text('How it works', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primaryDark)),
                   const SizedBox(height: 10),
                   _HowItWorksRow('1', 'Generate a unique code for each friend'),
                   _HowItWorksRow('2', 'Friend applies the code → gets ₹${signupCredit.toStringAsFixed(0)} wallet credit'),
@@ -242,7 +243,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
                     label: const Text('Generate New Invite Code'),
                     onPressed: _generating ? null : _generateCode,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32),
+                      backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
@@ -381,13 +382,13 @@ class _CodeCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isUsed ? Colors.grey.shade50 : Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: isUsed ? Colors.grey.shade300 : const Color(0xFF2E7D32).withValues(alpha: 0.4)),
+        border: Border.all(color: isUsed ? Colors.grey.shade300 : AppColors.primary.withValues(alpha: 0.4)),
       ),
       child: Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(code, style: TextStyle(
             fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 3,
-            color: isUsed ? Colors.grey : const Color(0xFF2E7D32),
+            color: isUsed ? Colors.grey : AppColors.primary,
           )),
           const SizedBox(height: 2),
           if (isUsed)
@@ -407,14 +408,14 @@ class _CodeCard extends StatelessWidget {
         ])),
         if (!isUsed) ...[
           IconButton(
-            icon: const Icon(Icons.copy_outlined, color: Color(0xFF2E7D32), size: 20),
+            icon: const Icon(Icons.copy_outlined, color: AppColors.primary, size: 20),
             tooltip: 'Copy',
             onPressed: onCopy,
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             padding: EdgeInsets.zero,
           ),
           IconButton(
-            icon: const Icon(Icons.share_outlined, color: Color(0xFF2E7D32), size: 20),
+            icon: const Icon(Icons.share_outlined, color: AppColors.primary, size: 20),
             tooltip: 'Share via WhatsApp',
             onPressed: onShare,
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
@@ -436,7 +437,7 @@ class _HowItWorksRow extends StatelessWidget {
     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Container(
         width: 22, height: 22, alignment: Alignment.center,
-        decoration: const BoxDecoration(color: Color(0xFF2E7D32), shape: BoxShape.circle),
+        decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
         child: Text(step, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
       ),
       const SizedBox(width: 10),

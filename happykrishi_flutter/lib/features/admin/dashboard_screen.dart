@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,7 +26,7 @@ class DashboardScreen extends ConsumerWidget {
       backgroundColor: const Color(0xFFF2F4F0),
       body: SafeArea(
         child: RefreshIndicator(
-          color: const Color(0xFF2E7D32),
+          color: AppColors.primary,
           onRefresh: () async => ref.invalidate(dashboardProvider),
           child: CustomScrollView(
             slivers: [
@@ -35,7 +36,7 @@ class DashboardScreen extends ConsumerWidget {
                 child: Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Color(0xFF1B5E20), Color(0xFF2E7D32), Color(0xFF388E3C)],
+                      colors: [AppColors.primaryDark, AppColors.primary, Color(0xFF388E3C)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -233,14 +234,18 @@ class DashboardScreen extends ConsumerWidget {
                     mainAxisSpacing: 10,
                   ),
                   delegate: SliverChildListDelegate([
+                    _ActionTile('Live Map',   Icons.map_outlined,              const Color(0xFF00695C), () => context.go('/admin/live-map')),
+                    _ActionTile('Money',      Icons.account_balance_wallet,    AppColors.primary, () => context.go('/admin/money')),
                     _ActionTile('Orders',    Icons.receipt_long,          const Color(0xFF1565C0), () => context.go('/admin/orders')),
-                    _ActionTile('Products',  Icons.inventory_2_outlined,  const Color(0xFF2E7D32), () => context.go('/admin/products')),
+                    _ActionTile('Products',  Icons.inventory_2_outlined,  AppColors.primary, () => context.go('/admin/products')),
                     _ActionTile('Customers', Icons.people_outline,        const Color(0xFF6A1B9A), () => context.go('/admin/customers')),
                     _ActionTile('Salesmen',  Icons.badge_outlined,        const Color(0xFFE65100), () => context.go('/admin/salesman')),
                     _ActionTile('Wallet',    Icons.account_balance_wallet, const Color(0xFF00695C), () => context.go('/admin/wallet-credit')),
                     _ActionTile('Top-ups',   Icons.pending_actions,       const Color(0xFFC62828), () => context.go('/admin/topup-requests')),
                     _ActionTile('Analytics', Icons.bar_chart,             const Color(0xFF1565C0), () => context.go('/admin/analytics')),
                     _ActionTile('Rewards',   Icons.card_giftcard,         const Color(0xFF880E4F), () => context.go('/admin/rewards')),
+                    _ActionTile('Referrals', Icons.people_alt_outlined,   const Color(0xFF6A1B9A), () => context.go('/admin/referrals')),
+                    _ActionTile('Promo Codes', Icons.discount_outlined,   const Color(0xFFE65100), () => context.go('/admin/promo-codes')),
                     _ActionTile('Custom\nDelivery', Icons.location_off_outlined, const Color(0xFF00695C), () => context.go('/admin/custom-delivery')),
                     _ActionTile('Config',    Icons.settings_outlined,         Colors.blueGrey,         () => context.go('/admin/config')),
                     _ActionTile('Tiers',     Icons.workspace_premium_outlined, const Color(0xFF6A1B9A), () => context.go('/admin/tiers')),
@@ -271,7 +276,7 @@ class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.title);
   @override
   Widget build(BuildContext context) => Text(title,
-      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1B5E20)));
+      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primaryDark));
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────

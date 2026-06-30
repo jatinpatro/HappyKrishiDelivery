@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -116,7 +117,7 @@ class _TopupRequestsScreenState extends ConsumerState<TopupRequestsScreen>
             child: Row(children: [
               _SummaryCard('Pending',  '${cntOf('pending')}  •  ₹${sumOf('pending').toStringAsFixed(0)}',  Colors.orange),
               const SizedBox(width: 8),
-              _SummaryCard('Approved', '${cntOf('approved')} •  ₹${sumOf('approved').toStringAsFixed(0)}', const Color(0xFF2E7D32)),
+              _SummaryCard('Approved', '${cntOf('approved')} •  ₹${sumOf('approved').toStringAsFixed(0)}', AppColors.primary),
               const SizedBox(width: 8),
               _SummaryCard('Rejected', '${cntOf('rejected')} •  ₹${sumOf('rejected').toStringAsFixed(0)}', Colors.red),
             ]),
@@ -246,7 +247,7 @@ class _RequestTile extends ConsumerWidget {
     Color statusColor;
     IconData statusIcon;
     switch (status) {
-      case 'approved': statusColor = const Color(0xFF2E7D32); statusIcon = Icons.check_circle;
+      case 'approved': statusColor = AppColors.primary; statusIcon = Icons.check_circle;
       case 'rejected': statusColor = Colors.red; statusIcon = Icons.cancel;
       default:         statusColor = Colors.orange; statusIcon = Icons.hourglass_empty;
     }
@@ -263,11 +264,11 @@ class _RequestTile extends ConsumerWidget {
           // Header
           Row(children: [
             CircleAvatar(
-              backgroundColor: const Color(0xFFE8F5E9),
+              backgroundColor: const Color(0xFFEAF2EA),
               child: Text(
                 (request['user_name'] as String? ?? 'U').substring(0, 1).toUpperCase(),
                 style: const TextStyle(
-                    color: Color(0xFF2E7D32), fontWeight: FontWeight.bold),
+                    color: AppColors.primary, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(width: 12),
@@ -283,7 +284,7 @@ class _RequestTile extends ConsumerWidget {
               Text('₹${amount.toStringAsFixed(0)}',
                   style: const TextStyle(
                       fontSize: 20, fontWeight: FontWeight.bold,
-                      color: Color(0xFF2E7D32))),
+                      color: AppColors.primary)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
@@ -353,7 +354,7 @@ class _RequestTile extends ConsumerWidget {
                   icon: const Icon(Icons.check, size: 16),
                   label: const Text('Approve'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32),
+                      backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       minimumSize: Size.zero,
                       padding: const EdgeInsets.symmetric(vertical: 10)),
@@ -385,7 +386,7 @@ class _RequestTile extends ConsumerWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
           ElevatedButton(onPressed: () => Navigator.pop(d, true),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               child: const Text('Approve')),
         ],
       ),
@@ -400,7 +401,7 @@ class _RequestTile extends ConsumerWidget {
       if (ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
           content: Text('₹${amount.toStringAsFixed(0)} credited ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {

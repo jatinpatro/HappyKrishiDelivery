@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -120,7 +121,7 @@ class _AdminPromoCodesScreenState extends ConsumerState<AdminPromoCodesScreen> {
                     child: Wrap(spacing: 6, runSpacing: 6, children: [
                       for (final f in [
                         ('all',      'All',      Colors.grey),
-                        ('active',   'Active',   const Color(0xFF2E7D32)),
+                        ('active',   'Active',   AppColors.primary),
                         ('inactive', 'Inactive', Colors.orange),
                         ('expired',  'Expired',  Colors.red),
                       ])
@@ -242,13 +243,13 @@ class _PromoCodeCard extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFFE8F5E9),
+              color: const Color(0xFFEAF2EA),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF2E7D32), width: 1.5),
+              border: Border.all(color: AppColors.primary, width: 1.5),
             ),
             child: Text(codeStr,
                 style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold,
-                    letterSpacing: 5, color: Color(0xFF2E7D32))),
+                    letterSpacing: 5, color: AppColors.primary)),
           ),
           const SizedBox(height: 8),
           Text('$discDesc$minDesc',
@@ -291,8 +292,8 @@ class _PromoCodeCard extends ConsumerWidget {
                           duration: Duration(seconds: 1)));
                 },
                 style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF2E7D32),
-                    side: const BorderSide(color: Color(0xFF2E7D32))),
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary)),
               ),
             ),
             const SizedBox(width: 10),
@@ -330,7 +331,7 @@ class _PromoCodeCard extends ConsumerWidget {
 
     final bool expired = validUntil != null &&
         DateTime.tryParse(validUntil)?.isBefore(DateTime.now()) == true;
-    final statusColor = !isActive || expired ? Colors.grey : const Color(0xFF2E7D32);
+    final statusColor = !isActive || expired ? Colors.grey : AppColors.primary;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -372,14 +373,14 @@ class _PromoCodeCard extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: (!isActive || expired) ? Colors.grey.shade100 : const Color(0xFFE8F5E9),
+                color: (!isActive || expired) ? Colors.grey.shade100 : const Color(0xFFEAF2EA),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 expired ? 'Expired' : isActive ? 'Active' : 'Inactive',
                 style: TextStyle(
                   fontSize: 11, fontWeight: FontWeight.w600,
-                  color: (!isActive || expired) ? Colors.grey : const Color(0xFF2E7D32),
+                  color: (!isActive || expired) ? Colors.grey : AppColors.primary,
                 ),
               ),
             ),
@@ -403,7 +404,7 @@ class _PromoCodeCard extends ConsumerWidget {
           Row(children: [
             Switch(
               value: isActive,
-              activeTrackColor: const Color(0xFF2E7D32),
+              activeTrackColor: AppColors.primary,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               onChanged: (_) async {
                 await ref.read(dioProvider).put(Endpoints.promoCode(code['id'] as int),
@@ -413,7 +414,7 @@ class _PromoCodeCard extends ConsumerWidget {
             ),
             Text(isActive ? 'Active' : 'Inactive',
                 style: TextStyle(fontSize: 12,
-                    color: isActive ? const Color(0xFF2E7D32) : Colors.grey)),
+                    color: isActive ? AppColors.primary : Colors.grey)),
             const Spacer(),
             // Share
             IconButton(
@@ -580,7 +581,7 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
       lastDate: DateTime(2030),
       initialDate: DateTime.tryParse(ctrl.text) ?? DateTime.now(),
       builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32))),
+        data: Theme.of(ctx).copyWith(colorScheme: const ColorScheme.light(primary: AppColors.primary)),
         child: child!,
       ),
     );
@@ -629,7 +630,7 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
       if (mounted) Navigator.pop(context);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_isEditing ? 'Promo code updated ✅' : 'Promo code created ✅'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
       ));
     } catch (e) {
       setState(() => _saving = false);
@@ -668,7 +669,7 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
                 const SizedBox(width: 6),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(color: const Color(0xFF2E7D32), borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(10)),
                   child: Text('${selected.length} selected',
                       style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
@@ -691,9 +692,9 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
                     duration: const Duration(milliseconds: 120),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: isSel ? const Color(0xFF2E7D32) : Colors.grey.shade100,
+                      color: isSel ? AppColors.primary : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: isSel ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+                      border: Border.all(color: isSel ? AppColors.primary : Colors.grey.shade300),
                     ),
                     child: Text(item['name'] as String,
                         style: TextStyle(fontSize: 12, color: isSel ? Colors.white : Colors.black87,
@@ -737,7 +738,7 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
             const SizedBox(width: 12),
             ChoiceChip(label: const Text('Flat ₹'), selected: _type == 'flat',
                 onSelected: (_) => setState(() => _type = 'flat'),
-                selectedColor: const Color(0xFFE8F5E9)),
+                selectedColor: const Color(0xFFEAF2EA)),
             const SizedBox(width: 8),
             ChoiceChip(label: const Text('Percent %'), selected: _type == 'percent',
                 onSelected: (_) => setState(() => _type = 'percent'),
@@ -778,9 +779,9 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: _firstOrderOnly ? const Color(0xFFE8F5E9) : Colors.grey.shade50,
+              color: _firstOrderOnly ? const Color(0xFFEAF2EA) : Colors.grey.shade50,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: _firstOrderOnly ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+              border: Border.all(color: _firstOrderOnly ? AppColors.primary : Colors.grey.shade300),
             ),
             child: Row(children: [
               const Icon(Icons.fiber_new_outlined, size: 18, color: Colors.grey),
@@ -788,7 +789,7 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
               const Expanded(child: Text('First order only', style: TextStyle(fontSize: 13))),
               Switch(
                 value: _firstOrderOnly,
-                activeTrackColor: const Color(0xFF2E7D32),
+                activeTrackColor: AppColors.primary,
                 onChanged: (v) => setState(() => _firstOrderOnly = v),
               ),
             ]),
@@ -814,7 +815,7 @@ class _PromoCodeFormState extends ConsumerState<_PromoCodeForm> {
             child: ElevatedButton(
               onPressed: _saving ? null : _submit,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white,
+                backgroundColor: AppColors.primary, foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 13),
               ),
               child: _saving

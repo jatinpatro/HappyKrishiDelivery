@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -66,8 +67,8 @@ class _CartItemTile extends ConsumerWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: p.imageUrl != null
-                ? CachedNetworkImage(imageUrl: '${Endpoints.baseUrl}${p.imageUrl}', width: 60, height: 60, fit: BoxFit.cover)
-                : Container(width: 60, height: 60, color: const Color(0xFFE8F5E9), child: const Icon(Icons.eco, color: Color(0xFF2E7D32))),
+                ? CachedNetworkImage(imageUrl: Endpoints.imageUrl(p.imageUrl), width: 60, height: 60, fit: BoxFit.cover)
+                : Container(width: 60, height: 60, color: const Color(0xFFEAF2EA), child: const Icon(Icons.eco, color: AppColors.primary)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -98,7 +99,7 @@ class _CartItemTile extends ConsumerWidget {
                     : () => ref.read(cartProvider.notifier).updateQty(p.id, item.qty + p.qtyStep),
               ),
             ]),
-            Text('₹${(p.pricePerUnit * item.qty).toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold)),
+            Text('₹${(p.pricePerUnit * item.qty).toStringAsFixed(2)}', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
             if (item.qty >= p.stockQty)
               Text('Max stock', style: TextStyle(fontSize: 9, color: Colors.orange.shade700)),
           ]),

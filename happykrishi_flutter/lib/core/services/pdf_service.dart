@@ -221,7 +221,233 @@ class PdfService {
         filename: 'invoice_${order.orderNumber}.pdf');
   }
 
-  // ── Admin: All Orders Report ──────────────────────────────────────────────────
+  // ── Admin: Products Report ────────────────────────────────────────────────────
+  static Future<void> shareAdminProductsReport({
+    required BuildContext context,
+    required List<Product> products,
+    required String title,
+  }) async {
+    await _loadFonts();
+    final doc = pw.Document();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      theme: _theme(),
+      build: (pw.Context ctx) => [
+        pw.Text('HappyKrishi Delivery', style: _style(fontSize: 18, bold: true, color: PdfColors.green800)),
+        pw.Text(title, style: _style(fontSize: 13, color: PdfColors.grey)),
+        pw.Text('Generated: ${DateTime.now().toString().substring(0, 16)}',
+            style: _style(fontSize: 9, color: PdfColors.grey)),
+        pw.SizedBox(height: 16),
+        pw.TableHelper.fromTextArray(
+          headers: ['Product', 'Category', 'Price', 'Unit', 'Stock', 'Min Qty', 'Status'],
+          headerStyle: _style(bold: true, fontSize: 9),
+          cellStyle: _style(fontSize: 8),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.green100),
+          data: products.map((p) => [
+            p.name,
+            p.categoryName ?? '-',
+            'Rs.${p.pricePerUnit.toStringAsFixed(2)}',
+            p.unit,
+            p.stockQty.toStringAsFixed(1),
+            p.minQty.toStringAsFixed(1),
+            p.isActive ? 'Active' : 'Inactive',
+          ]).toList(),
+        ),
+        pw.SizedBox(height: 12),
+        pw.Text(
+          'Total: ${products.length} products  |  '
+          'Active: ${products.where((p) => p.isActive).length}  |  '
+          'Out of stock: ${products.where((p) => p.stockQty <= 0).length}',
+          style: _style(bold: true, fontSize: 10),
+        ),
+        pw.SizedBox(height: 20),
+        _footer(),
+      ],
+    ));
+    await Printing.sharePdf(bytes: await doc.save(), filename: 'products_report.pdf');
+  }
+
+  // ── Admin: Topup Requests Report ─────────────────────────────────────────────
+  static Future<void> shareAdminTopupsReport({
+    required BuildContext context,
+    required List<Map<String, dynamic>> requests,
+    required String title,
+  }) async {
+    await _loadFonts();
+    final doc = pw.Document();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      theme: _theme(),
+      build: (pw.Context ctx) => [
+        pw.Text('HappyKrishi Delivery', style: _style(fontSize: 18, bold: true, color: PdfColors.green800)),
+        pw.Text(title, style: _style(fontSize: 13, color: PdfColors.grey)),
+        pw.Text('Generated: ${DateTime.now().toString().substring(0, 16)}', style: _style(fontSize: 9, color: PdfColors.grey)),
+        pw.SizedBox(height: 16),
+        pw.TableHelper.fromTextArray(
+          headers: ['Date', 'Customer', 'Amount', 'Method', 'Status', 'Collector', 'Settlement'],
+          headerStyle: _style(bold: true, fontSize: 9),
+          cellStyle: _style(fontSize: 8),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.green100),
+          data: requests.map((r) => [
+            (r['created_at'] as String).substring(0, 16),
+            r['user_name'] ?? '',
+            'Rs.${(r['amount'] as num).toStringAsFixed(0)}',
+            r['payment_method'] ?? '-',
+            (r['status'] as String? ?? '').toUpperCase(),
+            r['collector_name'] ?? r['collected_by'] ?? '-',
+            r['settlement_id'] != null ? 'Settled' : 'Unsettled',
+          ]).toList(),
+        ),
+        pw.SizedBox(height: 12),
+        pw.Text(
+          'Total: ${requests.length} requests  |  '
+          'Approved: Rs.${requests.where((r) => r['status'] == 'approved').fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble()).toStringAsFixed(0)}  |  '
+          'Pending: Rs.${requests.where((r) => r['status'] == 'pending').fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble()).toStringAsFixed(0)}',
+          style: _style(bold: true, fontSize: 10),
+        ),
+        pw.SizedBox(height: 20),
+        _footer(),
+      ],
+    ));
+    await Printing.sharePdf(bytes: await doc.save(), filename: 'topups_report.pdf');
+  }
+
+  // ── Admin: Advances Report ────────────────────────────────────────────────────
+  static Future<void> shareAdminAdvancesReport({
+    required BuildContext context,
+    required List<Map<String, dynamic>> advances,
+    required String title,
+  }) async {
+    await _loadFonts();
+    final doc = pw.Document();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      theme: _theme(),
+      build: (pw.Context ctx) => [
+        pw.Text('HappyKrishi Delivery', style: _style(fontSize: 18, bold: true, color: PdfColors.green800)),
+        pw.Text(title, style: _style(fontSize: 13, color: PdfColors.grey)),
+        pw.Text('Generated: ${DateTime.now().toString().substring(0, 16)}', style: _style(fontSize: 9, color: PdfColors.grey)),
+        pw.SizedBox(height: 16),
+        pw.TableHelper.fromTextArray(
+          headers: ['Date', 'Customer', 'Amount', 'Credited By', 'Payment Received'],
+          headerStyle: _style(bold: true, fontSize: 9),
+          cellStyle: _style(fontSize: 8),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.orange50),
+          data: advances.map((r) => [
+            (r['created_at'] as String).substring(0, 16),
+            r['user_name'] ?? '',
+            'Rs.${(r['amount'] as num).toStringAsFixed(0)}',
+            '${r['credited_by_role'] ?? '-'} ${r['credited_by_name'] ?? ''}'.trim(),
+            (r['payment_received'] as int? ?? 0) == 1 ? 'Yes' : 'No',
+          ]).toList(),
+        ),
+        pw.SizedBox(height: 12),
+        pw.Text(
+          'Total: ${advances.length} advances  |  '
+          'Unpaid: Rs.${advances.where((r) => (r['payment_received'] as int? ?? 0) == 0).fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble()).toStringAsFixed(0)}  |  '
+          'Paid: Rs.${advances.where((r) => (r['payment_received'] as int? ?? 0) == 1).fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble()).toStringAsFixed(0)}',
+          style: _style(bold: true, fontSize: 10),
+        ),
+        pw.SizedBox(height: 20),
+        _footer(),
+      ],
+    ));
+    await Printing.sharePdf(bytes: await doc.save(), filename: 'advances_report.pdf');
+  }
+
+  // ── Admin: Settlements Report ─────────────────────────────────────────────────
+  static Future<void> shareAdminSettlementsReport({
+    required BuildContext context,
+    required List<Map<String, dynamic>> settlements,
+    required String title,
+  }) async {
+    await _loadFonts();
+    final doc = pw.Document();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      theme: _theme(),
+      build: (pw.Context ctx) => [
+        pw.Text('HappyKrishi Delivery', style: _style(fontSize: 18, bold: true, color: PdfColors.green800)),
+        pw.Text(title, style: _style(fontSize: 13, color: PdfColors.grey)),
+        pw.Text('Generated: ${DateTime.now().toString().substring(0, 16)}', style: _style(fontSize: 9, color: PdfColors.grey)),
+        pw.SizedBox(height: 16),
+        pw.TableHelper.fromTextArray(
+          headers: ['Date', 'Salesman', 'Amount', 'Status', 'Acknowledged By'],
+          headerStyle: _style(bold: true, fontSize: 9),
+          cellStyle: _style(fontSize: 8),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.blue50),
+          data: settlements.map((r) => [
+            (r['created_at'] as String? ?? '').substring(0, 16),
+            r['salesman_name'] ?? '',
+            'Rs.${(r['amount'] as num).toStringAsFixed(0)}',
+            (r['status'] as String? ?? 'pending').toUpperCase(),
+            r['acknowledged_by_name'] ?? '-',
+          ]).toList(),
+        ),
+        pw.SizedBox(height: 12),
+        pw.Text(
+          'Total: ${settlements.length} settlements  |  '
+          'Total amount: Rs.${settlements.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble()).toStringAsFixed(0)}',
+          style: _style(bold: true, fontSize: 10),
+        ),
+        pw.SizedBox(height: 20),
+        _footer(),
+      ],
+    ));
+    await Printing.sharePdf(bytes: await doc.save(), filename: 'settlements_report.pdf');
+  }
+
+  // ── Admin: Direct Transactions Report ────────────────────────────────────────
+  static Future<void> shareAdminDirectTransactionsReport({
+    required BuildContext context,
+    required List<Map<String, dynamic>> transactions,
+    required String title,
+  }) async {
+    await _loadFonts();
+    final doc = pw.Document();
+    final credited = transactions.where((t) => t['type'] == 'credit').fold<double>(0, (s, t) => s + (t['amount'] as num).toDouble());
+    final debited  = transactions.where((t) => t['type'] != 'credit').fold<double>(0, (s, t) => s + (t['amount'] as num).toDouble());
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      theme: _theme(),
+      build: (pw.Context ctx) => [
+        pw.Text('HappyKrishi Delivery', style: _style(fontSize: 18, bold: true, color: PdfColors.green800)),
+        pw.Text(title, style: _style(fontSize: 13, color: PdfColors.grey)),
+        pw.Text('Generated: ${DateTime.now().toString().substring(0, 16)}', style: _style(fontSize: 9, color: PdfColors.grey)),
+        pw.SizedBox(height: 8),
+        pw.Text(
+          'Credited: Rs.${credited.toStringAsFixed(0)}  |  Debited: Rs.${debited.toStringAsFixed(0)}  |  Total: ${transactions.length} transactions',
+          style: _style(bold: true, fontSize: 10),
+        ),
+        pw.SizedBox(height: 12),
+        pw.TableHelper.fromTextArray(
+          headers: ['Date', 'Customer', 'Phone', 'Type', 'Amount', 'Description', 'Balance After'],
+          headerStyle: _style(bold: true, fontSize: 9),
+          cellStyle: _style(fontSize: 8),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo50),
+          data: transactions.map((t) => [
+            (t['created_at'] as String? ?? '').substring(0, 16),
+            t['customer_name'] ?? t['user_name'] ?? '',
+            t['customer_phone'] ?? t['user_phone'] ?? '',
+            (t['type'] as String? ?? '').toUpperCase(),
+            '${t['type'] == 'credit' ? '+' : '-'}Rs.${(t['amount'] as num).toStringAsFixed(0)}',
+            t['description'] ?? '-',
+            'Rs.${(t['balance_after'] as num?)?.toStringAsFixed(0) ?? '-'}',
+          ]).toList(),
+        ),
+        pw.SizedBox(height: 20),
+        _footer(),
+      ],
+    ));
+    await Printing.sharePdf(bytes: await doc.save(), filename: 'direct_transactions_report.pdf');
+  }
+
+  // ── Admin: Orders Report ──────────────────────────────────────────────────
   static Future<void> shareAdminOrdersReport({
     required BuildContext context,
     required List<Map<String, dynamic>> orders,

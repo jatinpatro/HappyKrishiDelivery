@@ -45,6 +45,38 @@ router.post('/collections/:id/approve', ops.approveMyCollection);
 router.get('/approved-collections', ops.myApprovedCollections);
 router.post('/settlements/raise', ops.raiseSettlementRequest);
 
+// Credit advance (give wallet credit before payment)
+router.post('/credit-advance', ops.creditTopupSalesman);
+router.post('/credit-advances/:id/mark-paid', ops.markCreditTopupPaidSalesman);
+// List my credit advances with optional date range filter
+router.get('/credit-advances', (req, res) => {
+  const db = require('../config/database');
+  const { date_from, date_to } = req.query;
+  const now = new Date();
+  const defaultFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const defaultTo   = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()).padStart(2,'0')}`;
+  const from = date_from || defaultFrom;
+  const to   = date_to   || defaultTo;
+
+  const advances = db.prepare(`
+    SELECT tr.*, u.name as user_name, u.phone as user_phone
+    FROM topup_requests tr
+    JOIN users u ON u.id = tr.user_id
+    WHERE tr.payment_method = 'credit_advance'
+      AND tr.credited_by_role = 'salesman'
+      AND CAST(tr.credited_by_id AS INTEGER) = ?
+      AND date(tr.created_at) >= ? AND date(tr.created_at) <= ?
+    ORDER BY tr.created_at DESC
+    LIMIT 200
+  `).all(req.user.id, from, to);
+
+  const totalGiven       = advances.reduce((s, a) => s + a.amount, 0);
+  const totalOutstanding = advances.filter(a => !a.payment_received).reduce((s, a) => s + a.amount, 0);
+  const totalReceived    = advances.filter(a => a.payment_received).reduce((s, a) => s + a.amount, 0);
+
+  res.json({ advances, date_from: from, date_to: to, totalGiven, totalOutstanding, totalReceived });
+});
+
 // Delivery management (salesman as delivery agent)
 router.put('/delivery/:id/pick', deliveryCtrl.markPicked);
 router.put('/delivery/:id/deliver', deliveryCtrl.markDelivered);
@@ -52,6 +84,8 @@ router.put('/delivery/location', deliveryCtrl.updateLocation);
 
 // Weight update for delivery items
 router.put('/orders/:id/items', require('../controllers/adminController').updateOrderItemWeights);
+// Waive delivery charge
+router.post('/orders/:id/waive-delivery', require('../controllers/adminController').waiveDeliveryCharge);
 
 // Stock management (salesman can update stock_qty and toggle is_active)
 router.get('/products', (req, res) => {

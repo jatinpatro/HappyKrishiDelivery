@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -127,7 +128,7 @@ class _AdminMoneyScreenState extends ConsumerState<AdminMoneyScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Money'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(icon: const Icon(Icons.home_outlined), onPressed: () => context.go('/admin/dashboard')),
@@ -208,7 +209,7 @@ class _TopupsTabState extends ConsumerState<_TopupsTab>
         child: Row(children: [
           _StatChip('${cnt('pending')} pending', '₹${sum('pending').toStringAsFixed(0)}', Colors.orange),
           const SizedBox(width: 6),
-          _StatChip('${cnt('approved')} approved', '₹${sum('approved').toStringAsFixed(0)}', const Color(0xFF2E7D32)),
+          _StatChip('${cnt('approved')} approved', '₹${sum('approved').toStringAsFixed(0)}', AppColors.primary),
           const SizedBox(width: 6),
           _StatChip('${cnt('rejected')} rejected', '₹${sum('rejected').toStringAsFixed(0)}', Colors.red),
         ]),
@@ -246,9 +247,9 @@ class _TopupsTabState extends ConsumerState<_TopupsTab>
       // ── Inner tab bar ─────────────────────────────────────────────────────
       TabBar(
         controller: _inner,
-        labelColor: const Color(0xFF2E7D32),
+        labelColor: AppColors.primary,
         unselectedLabelColor: Colors.grey,
-        indicatorColor: const Color(0xFF2E7D32),
+        indicatorColor: AppColors.primary,
         isScrollable: true,
         tabAlignment: TabAlignment.start,
         labelPadding: const EdgeInsets.symmetric(horizontal: 12),
@@ -710,7 +711,7 @@ class _AdvanceSettledList extends ConsumerWidget {
 
     return ListView(padding: const EdgeInsets.all(12), children: [
       if (doneSettlements.isNotEmpty) ...[
-        const _SectionHeader('Settled via Salesman Settlements', Color(0xFF2E7D32)),
+        const _SectionHeader('Settled via Salesman Settlements', AppColors.primary),
         const SizedBox(height: 8),
         ...doneSettlements.map((s) => _SettlementCard(settlement: s, canAcknowledge: false, onAcknowledged: null)),
         const SizedBox(height: 16),
@@ -843,18 +844,18 @@ class _DirectHistory extends ConsumerWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: hasDate ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                    color: hasDate ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+                    border: Border.all(color: hasDate ? AppColors.primary : Colors.grey.shade300),
                   ),
                   child: Row(children: [
-                    Icon(Icons.date_range_outlined, size: 15, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                    Icon(Icons.date_range_outlined, size: 15, color: hasDate ? AppColors.primary : Colors.grey),
                     const SizedBox(width: 6),
                     Expanded(child: Text(
                       hasDate
                           ? '${dateFrom != null ? _fmt(dateFrom!) : '…'} → ${dateTo != null ? _fmt(dateTo!) : '…'}'
                           : 'All dates',
-                      style: TextStyle(fontSize: 12, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                      style: TextStyle(fontSize: 12, color: hasDate ? AppColors.primary : Colors.grey),
                     )),
                     if (hasDate)
                       GestureDetector(
@@ -921,7 +922,7 @@ class _DirectHistory extends ConsumerWidget {
                   child: Row(children: [
                     Expanded(child: Column(children: [
                       Text('₹${(summary['total_credited'] as num?)?.toStringAsFixed(0) ?? '0'}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF2E7D32))),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primary)),
                       const Text('Credited', style: TextStyle(fontSize: 10, color: Colors.grey)),
                     ])),
                     Container(width: 1, height: 32, color: Colors.indigo.shade200),
@@ -955,7 +956,7 @@ class _DirectTxnCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isCredit = txn['type'] == 'credit';
     final amount   = (txn['amount'] as num).toDouble();
-    final color    = isCredit ? const Color(0xFF2E7D32) : Colors.red;
+    final color    = isCredit ? AppColors.primary : Colors.red;
     final name     = txn['customer_name'] as String? ?? txn['user_name'] as String? ?? '';
     final phone    = txn['customer_phone'] as String? ?? txn['user_phone'] as String? ?? '';
 
@@ -1118,18 +1119,18 @@ class _ExportSheetContentState extends ConsumerState<_ExportSheetContent> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: hasDate ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                    color: hasDate ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+                    border: Border.all(color: hasDate ? AppColors.primary : Colors.grey.shade300),
                   ),
                   child: Row(children: [
-                    Icon(Icons.date_range_outlined, size: 16, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                    Icon(Icons.date_range_outlined, size: 16, color: hasDate ? AppColors.primary : Colors.grey),
                     const SizedBox(width: 8),
                     Expanded(child: Text(
                       hasDate
                           ? '${_dateFrom != null ? _fmt(_dateFrom!) : '…'}  →  ${_dateTo != null ? _fmt(_dateTo!) : '…'}'
                           : 'All dates — tap to filter',
-                      style: TextStyle(fontSize: 13, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                      style: TextStyle(fontSize: 13, color: hasDate ? AppColors.primary : Colors.grey),
                     )),
                     if (hasDate)
                       GestureDetector(
@@ -1222,7 +1223,7 @@ class _ExportSheetContentState extends ConsumerState<_ExportSheetContent> {
                 label: Text(_loading ? 'Fetching records…' : 'Download PDF'),
                 onPressed: _loading ? null : _download,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -1262,7 +1263,7 @@ class _TopupCardState extends ConsumerState<_TopupCard> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
         ElevatedButton(onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)), child: const Text('Approve')),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary), child: const Text('Approve')),
       ],
     ));
     if (ok != true || !mounted) return;
@@ -1272,7 +1273,7 @@ class _TopupCardState extends ConsumerState<_TopupCard> {
           data: {'note': noteCtrl.text.isEmpty ? null : noteCtrl.text});
       widget.onRefresh();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Approved ✅'), backgroundColor: Color(0xFF2E7D32)));
+          content: Text('Approved ✅'), backgroundColor: AppColors.primary));
     } catch (e, st) {
       logError('topup-approve', e, st);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
@@ -1314,7 +1315,7 @@ class _TopupCardState extends ConsumerState<_TopupCard> {
     final amount = (r['amount'] as num).toDouble();
     final method = r['payment_method'] as String? ?? 'cash';
     final isPending = status == 'pending';
-    final statusColor = status == 'approved' ? const Color(0xFF2E7D32) : status == 'rejected' ? Colors.red : Colors.orange;
+    final statusColor = status == 'approved' ? AppColors.primary : status == 'rejected' ? Colors.red : Colors.orange;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1324,16 +1325,16 @@ class _TopupCardState extends ConsumerState<_TopupCard> {
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            CircleAvatar(backgroundColor: const Color(0xFFE8F5E9),
+            CircleAvatar(backgroundColor: const Color(0xFFEAF2EA),
                 child: Text((r['user_name'] as String? ?? 'U')[0].toUpperCase(),
-                    style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold))),
+                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(r['user_name'] as String? ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
               Text('+91 ${r['user_phone'] ?? ''}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
             ])),
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text('₹${amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+              Text('₹${amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
@@ -1397,7 +1398,7 @@ class _TopupCardState extends ConsumerState<_TopupCard> {
                     const SizedBox(width: 10),
                     Expanded(child: ElevatedButton(
                       onPressed: _approve,
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 8)),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 8)),
                       child: const Text('Approve & Credit'),
                     )),
                   ]),
@@ -1432,7 +1433,7 @@ class _SettlementCardState extends ConsumerState<_SettlementCard> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
         ElevatedButton(onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Acknowledge')),
       ],
     ));
@@ -1443,7 +1444,7 @@ class _SettlementCardState extends ConsumerState<_SettlementCard> {
       widget.onAcknowledged?.call();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Settlement from ${s['salesman_name']} acknowledged ✅'),
-          backgroundColor: const Color(0xFF2E7D32)));
+          backgroundColor: AppColors.primary));
     } catch (e, st) {
       logError('settlement-ack', e, st);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
@@ -1466,9 +1467,9 @@ class _SettlementCardState extends ConsumerState<_SettlementCard> {
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            CircleAvatar(backgroundColor: const Color(0xFFE8F5E9),
+            CircleAvatar(backgroundColor: const Color(0xFFEAF2EA),
                 child: Text((s['salesman_name'] as String? ?? 'S')[0].toUpperCase(),
-                    style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold))),
+                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
@@ -1489,7 +1490,7 @@ class _SettlementCardState extends ConsumerState<_SettlementCard> {
               if (s['note'] != null) Text(s['note'] as String, style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ])),
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text('₹${amount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF2E7D32))),
+              Text('₹${amount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primary)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(color: acknowledged ? Colors.green.shade50 : Colors.blue.shade50, borderRadius: BorderRadius.circular(6)),
@@ -1512,7 +1513,7 @@ class _SettlementCardState extends ConsumerState<_SettlementCard> {
                       icon: const Icon(Icons.check_circle_outline, size: 16),
                       label: const Text('Acknowledge Receipt'),
                       onPressed: _acknowledge,
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 10)),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 10)),
                     ),
             ),
           ],
@@ -1661,7 +1662,7 @@ class _SalesmanCollectionCardState extends ConsumerState<_SalesmanCollectionCard
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Raise'),
           ),
         ],
@@ -1674,7 +1675,7 @@ class _SalesmanCollectionCardState extends ConsumerState<_SalesmanCollectionCard
       widget.onRaised();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Settlement of ₹${widget.total.toStringAsFixed(0)} raised for ${widget.name} ✅'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
       ));
     } catch (e, st) {
       logError('admin-raise-settlement', e, st);
@@ -1705,7 +1706,7 @@ class _SalesmanCollectionCardState extends ConsumerState<_SalesmanCollectionCard
           children: [
             ...widget.records.map((r) => ListTile(
               dense: true,
-              leading: const Icon(Icons.check_circle_outline, size: 16, color: Color(0xFF2E7D32)),
+              leading: const Icon(Icons.check_circle_outline, size: 16, color: AppColors.primary),
               title: Text(r['customer_name'] as String? ?? r['user_name'] as String? ?? '', style: const TextStyle(fontSize: 13)),
               subtitle: Text('${(r['created_at'] as String).substring(0, 10)}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
               trailing: Text('₹${(r['amount'] as num).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
@@ -1722,7 +1723,7 @@ class _SalesmanCollectionCardState extends ConsumerState<_SalesmanCollectionCard
                           label: Text('Raise ₹${widget.total.toStringAsFixed(0)} on Behalf of ${widget.name}'),
                           onPressed: _raiseOnBehalf,
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF2E7D32), side: const BorderSide(color: Color(0xFF2E7D32)),
+                            foregroundColor: AppColors.primary, side: const BorderSide(color: AppColors.primary),
                             padding: const EdgeInsets.symmetric(vertical: 10), textStyle: const TextStyle(fontSize: 12),
                           ),
                         ),
@@ -2013,16 +2014,16 @@ class _WalletActivityTabState extends ConsumerState<_WalletActivityTab> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: hasDate ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                    color: hasDate ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+                    border: Border.all(color: hasDate ? AppColors.primary : Colors.grey.shade300),
                   ),
                   child: Row(children: [
-                    Icon(Icons.date_range_outlined, size: 15, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                    Icon(Icons.date_range_outlined, size: 15, color: hasDate ? AppColors.primary : Colors.grey),
                     const SizedBox(width: 6),
                     Expanded(child: Text(
                       hasDate ? '${_dateFrom != null ? _fmt(_dateFrom!) : '…'} → ${_dateTo != null ? _fmt(_dateTo!) : '…'}' : 'All dates',
-                      style: TextStyle(fontSize: 12, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                      style: TextStyle(fontSize: 12, color: hasDate ? AppColors.primary : Colors.grey),
                     )),
                     if (hasDate) GestureDetector(
                       onTap: () { setState(() { _dateFrom = null; _dateTo = null; }); _resetAndLoad(); },
@@ -2118,7 +2119,7 @@ class _WalletActivityTabState extends ConsumerState<_WalletActivityTab> {
           children: [
             _ImprovedChip(label: 'All types', selected: _typeFilter == null, color: Colors.grey,
                 onTap: () { setState(() => _typeFilter = null); _resetAndLoad(); }),
-            _ImprovedChip(label: '+ Credit', selected: _typeFilter == 'credit', color: const Color(0xFF2E7D32),
+            _ImprovedChip(label: '+ Credit', selected: _typeFilter == 'credit', color: AppColors.primary,
                 onTap: () { setState(() => _typeFilter = _typeFilter == 'credit' ? null : 'credit'); _resetAndLoad(); }),
             _ImprovedChip(label: '- Debit', selected: _typeFilter == 'debit', color: Colors.red,
                 onTap: () { setState(() => _typeFilter = _typeFilter == 'debit' ? null : 'debit'); _resetAndLoad(); }),
@@ -2272,7 +2273,7 @@ class _WalletAnalyticsCardState extends State<_WalletAnalyticsCard> {
               Row(children: [
                 Expanded(child: _AnalyticsPill('${(summary['total_count'] as num?)?.toInt() ?? 0}', 'Records', Colors.indigo)),
                 const SizedBox(width: 6),
-                Expanded(child: _AnalyticsPill('₹${(summary['total_credited'] as num?)?.toStringAsFixed(0) ?? '0'}', 'Credited', const Color(0xFF2E7D32))),
+                Expanded(child: _AnalyticsPill('₹${(summary['total_credited'] as num?)?.toStringAsFixed(0) ?? '0'}', 'Credited', AppColors.primary)),
                 const SizedBox(width: 6),
                 Expanded(child: _AnalyticsPill('₹${(summary['total_debited'] as num?)?.toStringAsFixed(0) ?? '0'}', 'Debited', Colors.red)),
                 const SizedBox(width: 6),
@@ -2366,9 +2367,9 @@ class _CustomerWalletSheetState extends ConsumerState<_CustomerWalletSheet> {
                 decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
             const SizedBox(height: 12),
             Row(children: [
-              CircleAvatar(backgroundColor: const Color(0xFFE8F5E9),
+              CircleAvatar(backgroundColor: const Color(0xFFEAF2EA),
                   child: Text(widget.name[0].toUpperCase(),
-                      style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold))),
+                      style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))),
               const SizedBox(width: 10),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(widget.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
@@ -2409,16 +2410,16 @@ class _CustomerWalletSheetState extends ConsumerState<_CustomerWalletSheet> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                 decoration: BoxDecoration(
-                  color: hasDate ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                  color: hasDate ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+                  border: Border.all(color: hasDate ? AppColors.primary : Colors.grey.shade300),
                 ),
                 child: Row(children: [
-                  Icon(Icons.date_range_outlined, size: 14, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                  Icon(Icons.date_range_outlined, size: 14, color: hasDate ? AppColors.primary : Colors.grey),
                   const SizedBox(width: 6),
                   Expanded(child: Text(
                     hasDate ? '${_dateFrom != null ? _fmt(_dateFrom!) : '…'} → ${_dateTo != null ? _fmt(_dateTo!) : '…'}' : 'All dates',
-                    style: TextStyle(fontSize: 12, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                    style: TextStyle(fontSize: 12, color: hasDate ? AppColors.primary : Colors.grey),
                   )),
                   if (hasDate) GestureDetector(
                     onTap: () => setState(() { _dateFrom = null; _dateTo = null; }),
@@ -2448,13 +2449,13 @@ class _CustomerWalletSheetState extends ConsumerState<_CustomerWalletSheet> {
                 Center(child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: balance < 0 ? Colors.red.shade50 : const Color(0xFFE8F5E9),
+                    color: balance < 0 ? Colors.red.shade50 : const Color(0xFFEAF2EA),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: balance < 0 ? Colors.red.shade300 : const Color(0xFF2E7D32)),
+                    border: Border.all(color: balance < 0 ? Colors.red.shade300 : AppColors.primary),
                   ),
                   child: Text('Balance: ₹${balance.toStringAsFixed(2)}',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
-                          color: balance < 0 ? Colors.red : const Color(0xFF2E7D32))),
+                          color: balance < 0 ? Colors.red : AppColors.primary)),
                 )),
                 const SizedBox(height: 12),
                 ...txns.map((t) => _WalletActivityCard(txn: t, onTap: null)),
@@ -2487,7 +2488,7 @@ class _WalletActivityCard extends StatelessWidget {
     if (type == 'adjustment')                     return (color: const Color(0xFFE65100), icon: Icons.scale_outlined, label: 'Adjustment');
     if (ref == 'referral_signup' || ref == 'referral_bonus') return (color: const Color(0xFF6A1B9A), icon: Icons.people_outline, label: 'Referral');
     final isCredit = ['credit', 'refund', 'discount'].contains(type);
-    return (color: isCredit ? const Color(0xFF2E7D32) : Colors.red, icon: isCredit ? Icons.add_circle_outline : Icons.remove_circle_outline, label: isCredit ? 'Credit' : 'Debit');
+    return (color: isCredit ? AppColors.primary : Colors.red, icon: isCredit ? Icons.add_circle_outline : Icons.remove_circle_outline, label: isCredit ? 'Credit' : 'Debit');
   }
 
   @override
@@ -2532,7 +2533,7 @@ class _WalletActivityCard extends StatelessWidget {
                 Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
                 Text('${isCredit ? '+' : '-'}₹${amount.toStringAsFixed(0)}',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
-                        color: isCredit ? const Color(0xFF2E7D32) : Colors.red)),
+                        color: isCredit ? AppColors.primary : Colors.red)),
               ]),
               Row(children: [
                 Container(

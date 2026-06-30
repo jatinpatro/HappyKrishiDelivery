@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -54,12 +55,12 @@ class _SalesmanScreenState extends ConsumerState<SalesmanScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
+                color: const Color(0xFFEAF2EA),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text('$salesmenCount',
                   style: const TextStyle(
-                      color: Color(0xFF2E7D32), fontSize: 12, fontWeight: FontWeight.bold)),
+                      color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ],
         ]),
@@ -146,7 +147,7 @@ class _SalesmanScreenState extends ConsumerState<SalesmanScreen>
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Salesman created ✅'),
-                            backgroundColor: Color(0xFF2E7D32)));
+                            backgroundColor: AppColors.primary));
                   }
                 } catch (e, st) {
                   logError('admin-salesman', e, st);
@@ -236,7 +237,7 @@ class _SalesmanTile extends ConsumerWidget {
         child: Column(children: [
           Row(children: [
             CircleAvatar(
-              backgroundColor: isActive ? const Color(0xFF2E7D32) : Colors.grey,
+              backgroundColor: isActive ? AppColors.primary : Colors.grey,
               child: Text(name.substring(0, 1).toUpperCase(),
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
@@ -253,7 +254,7 @@ class _SalesmanTile extends ConsumerWidget {
             ])),
             Switch(
               value: isActive,
-              activeTrackColor: const Color(0xFF2E7D32),
+              activeTrackColor: AppColors.primary,
               onChanged: (_) async {
                 final dio = ref.read(dioProvider);
                 await dio.put(Endpoints.adminSalesmanToggle(id));
@@ -393,7 +394,7 @@ class _SalesmanTile extends ConsumerWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                           content: Text('Salesman updated ✅'),
-                          backgroundColor: Color(0xFF2E7D32)));
+                          backgroundColor: AppColors.primary));
                 }
               } catch (e, st) {
                 logError('admin-salesman', e, st);
@@ -497,7 +498,7 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
           : null,
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-            colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32))),
+            colorScheme: const ColorScheme.light(primary: AppColors.primary)),
         child: child!,
       ),
     );
@@ -563,14 +564,14 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: _hasDate ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                      color: _hasDate ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+                          color: _hasDate ? AppColors.primary : Colors.grey.shade300),
                     ),
                     child: Row(children: [
                       Icon(Icons.date_range, size: 15,
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                          color: _hasDate ? AppColors.primary : Colors.grey),
                       const SizedBox(width: 6),
                       Expanded(child: Text(
                         _hasDate
@@ -578,12 +579,12 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
                             : 'Filter by date range',
                         style: TextStyle(
                           fontSize: 12,
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade600,
+                          color: _hasDate ? AppColors.primary : Colors.grey.shade600,
                           fontWeight: _hasDate ? FontWeight.w600 : FontWeight.normal,
                         ),
                       )),
                       Icon(Icons.edit_calendar_outlined, size: 13,
-                          color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                          color: _hasDate ? AppColors.primary : Colors.grey),
                     ]),
                   ),
                 ),
@@ -610,9 +611,9 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
             color: Colors.white,
             child: TabBar(
               controller: _innerTabs,
-              labelColor: const Color(0xFF2E7D32),
+              labelColor: AppColors.primary,
               unselectedLabelColor: Colors.grey,
-              indicatorColor: const Color(0xFF2E7D32),
+              indicatorColor: AppColors.primary,
               isScrollable: true,
               tabAlignment: TabAlignment.start,
               tabs: [
@@ -795,7 +796,7 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
                       ))
                     else ...[
                       _SecHeader('Acknowledged Settlements', Icons.check_circle,
-                          const Color(0xFF2E7D32)),
+                          AppColors.primary),
                       const SizedBox(height: 8),
                       ...filteredSettlements.map((s) => _HistoryTile(s: s)),
                     ],
@@ -823,7 +824,7 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(children: [
-          const Icon(Icons.check_circle, color: Color(0xFF2E7D32)),
+          const Icon(Icons.check_circle, color: AppColors.primary),
           const SizedBox(width: 8),
           Text('Acknowledge: $name'),
         ]),
@@ -832,16 +833,16 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(8)),
+                color: const Color(0xFFEAF2EA), borderRadius: BorderRadius.circular(8)),
             child: Row(children: [
-              const Icon(Icons.payments, color: Color(0xFF2E7D32)),
+              const Icon(Icons.payments, color: AppColors.primary),
               const SizedBox(width: 10),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text('Cash to receive from salesman',
                     style: TextStyle(fontSize: 12, color: Colors.grey)),
                 Text('₹${amount.toStringAsFixed(2)}',
                     style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold,
-                        color: Color(0xFF2E7D32))),
+                        color: AppColors.primary)),
               ]),
             ]),
           ),
@@ -854,7 +855,7 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Acknowledge & Mark Received'),
           ),
         ],
@@ -868,7 +869,7 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('₹${amount.toStringAsFixed(0)} from $name acknowledged ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -895,10 +896,10 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(8)),
+                color: const Color(0xFFEAF2EA), borderRadius: BorderRadius.circular(8)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('₹${amount.toStringAsFixed(2)}', style: const TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                  fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.primary)),
               Text('from $customer via $salesman',
                   style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ]),
@@ -914,7 +915,7 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Settle'),
           ),
         ],
@@ -931,7 +932,7 @@ class _CashCollectionsTabState extends ConsumerState<_CashCollectionsTab>
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('₹${amount.toStringAsFixed(0)} settled ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -1097,8 +1098,8 @@ class _PendingRequestTile extends ConsumerWidget {
                 icon: const Icon(Icons.check_circle_outline, size: 16),
                 label: const Text('Mark as Settled'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF2E7D32),
-                  side: const BorderSide(color: Color(0xFF2E7D32)),
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
                   padding: const EdgeInsets.symmetric(vertical: 8),
                 ),
                 onPressed: onSettle,
@@ -1133,8 +1134,8 @@ class _HistoryTile extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(children: [
-          const CircleAvatar(backgroundColor: Color(0xFFE8F5E9),
-              child: Icon(Icons.done_all, color: Color(0xFF2E7D32), size: 18)),
+          const CircleAvatar(backgroundColor: Color(0xFFEAF2EA),
+              child: Icon(Icons.done_all, color: AppColors.primary, size: 18)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('$name — ₹${amount.toStringAsFixed(0)}',

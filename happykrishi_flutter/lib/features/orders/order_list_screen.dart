@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -78,7 +79,7 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
     (key: 'confirmed',  label: '✅ Confirmed',   color: Color(0xFF0277BD)),
     (key: 'assigned',   label: '🚴 Assigned',    color: Color(0xFF6A1B9A)),
     (key: 'dispatched', label: '🚚 Dispatched',  color: Color(0xFF00838F)),
-    (key: 'delivered',  label: '📦 Delivered',   color: Color(0xFF2E7D32)),
+    (key: 'delivered',  label: '📦 Delivered',   color: AppColors.primary),
     (key: 'cancelled',  label: '❌ Cancelled',   color: Color(0xFFC62828)),
   ];
 
@@ -165,15 +166,15 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: _hasDate ? const Color(0xFF2E7D32).withValues(alpha: 0.08) : Colors.grey.shade100,
+                  color: _hasDate ? AppColors.primary.withValues(alpha: 0.08) : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                    color: _hasDate ? AppColors.primary : Colors.grey.shade300,
                   ),
                 ),
                 child: Row(children: [
                   Icon(Icons.date_range_outlined,
-                      size: 16, color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                      size: 16, color: _hasDate ? AppColors.primary : Colors.grey),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -182,7 +183,7 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
                           : 'Filter by date',
                       style: TextStyle(
                         fontSize: 13,
-                        color: _hasDate ? const Color(0xFF2E7D32) : Colors.grey,
+                        color: _hasDate ? AppColors.primary : Colors.grey,
                       ),
                     ),
                   ),
@@ -219,7 +220,7 @@ class _OrderListScreenState extends ConsumerState<OrderListScreen> {
                   _Chip(
                     label: 'All',
                     selected: _statusFilter == null,
-                    color: const Color(0xFF2E7D32),
+                    color: AppColors.primary,
                     onTap: () => setState(() => _statusFilter = null),
                   ),
                   ..._statuses.map((s) => Padding(
@@ -372,7 +373,7 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+                backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Yes, I received it'),
           ),
         ],
@@ -423,8 +424,8 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
                     label: const Text('Track Live'),
                     onPressed: () => context.push('/track/${order.id}'),
                     style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2E7D32),
-                        side: const BorderSide(color: Color(0xFF2E7D32))),
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary)),
                   ),
                 ),
                 if (canConfirm) ...[
@@ -432,13 +433,13 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
                   Expanded(
                     child: _confirming
                         ? const Center(child: SizedBox(width: 22, height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2E7D32))))
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)))
                         : ElevatedButton.icon(
                             icon: const Icon(Icons.check_circle_outline, size: 16),
                             label: const Text('I Received It'),
                             onPressed: _confirmDelivery,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2E7D32),
+                              backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
                               textStyle: const TextStyle(fontSize: 12),
                             ),

@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -35,7 +36,7 @@ class _SetPasswordScreenState extends ConsumerState<SetPasswordScreen> {
       await ref.read(authStateProvider.notifier).refreshUser();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password set successfully ✅'), backgroundColor: Color(0xFF2E7D32)));
+          const SnackBar(content: Text('Password set successfully ✅'), backgroundColor: AppColors.primary));
         final user = ref.read(authStateProvider).user;
         if (user?.role == 'admin' || user?.role == 'subadmin') {
           context.go('/admin/dashboard');
@@ -64,7 +65,7 @@ class _SetPasswordScreenState extends ConsumerState<SetPasswordScreen> {
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Icon(Icons.lock_outline, size: 56, color: Color(0xFF2E7D32)),
+          const Icon(Icons.lock_outline, size: 56, color: AppColors.primary),
           const SizedBox(height: 16),
           const Text('Create Your Password',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),

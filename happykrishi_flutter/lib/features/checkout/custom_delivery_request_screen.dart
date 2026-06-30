@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -120,18 +121,18 @@ class _CustomDeliveryRequestScreenState
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
+                color: const Color(0xFFEAF2EA),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.4)),
+                border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
               ),
               child: Column(children: [
-                const Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 48),
+                const Icon(Icons.check_circle, color: AppColors.primary, size: 48),
                 const SizedBox(height: 12),
                 const Text('Request Submitted!',
                     style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF2E7D32))),
+                        color: AppColors.primary)),
                 const SizedBox(height: 8),
                 Text(
                   'We\'ll review your request and contact you at +91 ${user?.phone ?? ''} within 24 hours.',
@@ -270,7 +271,7 @@ class _RequestTileState extends ConsumerState<_RequestTile> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Submit Again'),
           ),
         ],
@@ -289,7 +290,7 @@ class _RequestTileState extends ConsumerState<_RequestTile> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Request submitted again ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -390,17 +391,17 @@ class _RequestTileState extends ConsumerState<_RequestTile> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
+                  color: const Color(0xFFEAF2EA),
                   borderRadius: BorderRadius.circular(8)),
               child: const Row(children: [
-                Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 16),
+                Icon(Icons.check_circle, color: AppColors.primary, size: 16),
                 SizedBox(width: 8),
                 Expanded(
                     child: Text(
                         'Your area is approved! You can now place delivery orders to this pincode.',
                         style: TextStyle(
                             fontSize: 12,
-                            color: Color(0xFF2E7D32),
+                            color: AppColors.primary,
                             fontWeight: FontWeight.w500))),
               ]),
             ),
@@ -474,7 +475,7 @@ class _SaveAddressButtonState extends ConsumerState<_SaveAddressButton> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Save'),
           ),
         ],
@@ -495,7 +496,7 @@ class _SaveAddressButtonState extends ConsumerState<_SaveAddressButton> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Address saved ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -512,9 +513,9 @@ class _SaveAddressButtonState extends ConsumerState<_SaveAddressButton> {
   Widget build(BuildContext context) {
     if (_saved) {
       return const Row(children: [
-        Icon(Icons.check, color: Color(0xFF2E7D32), size: 14),
+        Icon(Icons.check, color: AppColors.primary, size: 14),
         SizedBox(width: 6),
-        Text('Saved to addresses', style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32))),
+        Text('Saved to addresses', style: TextStyle(fontSize: 12, color: AppColors.primary)),
       ]);
     }
     return SizedBox(
@@ -527,8 +528,8 @@ class _SaveAddressButtonState extends ConsumerState<_SaveAddressButton> {
         label: const Text('Save to My Addresses'),
         onPressed: _saving ? null : _save,
         style: OutlinedButton.styleFrom(
-          foregroundColor: const Color(0xFF2E7D32),
-          side: const BorderSide(color: Color(0xFF2E7D32)),
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
         ),
       ),
     );

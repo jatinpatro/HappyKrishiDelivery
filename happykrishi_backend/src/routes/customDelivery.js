@@ -17,4 +17,13 @@ router.get('/pincodes', authenticate, requireRole('admin', 'subadmin'), c.listWh
 router.put('/pincodes/:pincode', authenticate, requireRole('admin', 'subadmin'), c.updateWhitelistedPincode);
 router.delete('/pincodes/:pincode', authenticate, requireRole('admin', 'subadmin'), c.removeWhitelistedPincode);
 
+// Tiered delivery rules per pincode
+router.get('/pincodes/:pincode/rules', authenticate, requireRole('admin', 'subadmin'), c.listPincodeRules);
+router.post('/pincodes/:pincode/rules', authenticate, requireRole('admin', 'subadmin'), c.upsertPincodeRule);
+router.put('/pincodes/:pincode/rules/:ruleId', authenticate, requireRole('admin', 'subadmin'), c.upsertPincodeRule);
+router.delete('/pincodes/:pincode/rules/:ruleId', authenticate, requireRole('admin', 'subadmin'), c.deletePincodeRule);
+
+// Addresses using this pincode
+router.get('/pincodes/:pincode/addresses', authenticate, requireRole('admin', 'subadmin'), c.listPincodeAddresses);
+
 module.exports = router;

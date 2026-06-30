@@ -3,15 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:go_router/go_router.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/models/models.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/services/pdf_service.dart';
-import '../../core/utils/firebase_storage_web.dart' if (dart.library.io) '../../core/utils/firebase_storage_stub.dart';
+import '../../core/utils/firebase_upload.dart';
 
 final adminProductsProvider =
     FutureProvider.autoDispose.family<List<Product>, String>((ref, key) async {
@@ -539,36 +537,30 @@ class _ProductImageAvatarState extends ConsumerState<_ProductImageAvatar> {
       final filename = 'products/product_${widget.product.id}.$ext';
       final dio = ref.read(dioProvider);
 
-      if (kIsWeb) {
-        // Web: use JS bridge → Firebase REST API directly (Flutter SDK hangs on web)
-        final resultJson = await uploadImageToFirebaseViaJs(bytes, filename, 'image/$ext');
-        if (resultJson['success'] == true) {
-          final firebaseUrl = resultJson['url'] as String;
-          await dio.post(Endpoints.adminProductImageUrl(widget.product.id),
-              data: {'url': firebaseUrl});
-        } else {
-          // Firebase JS failed — fall back to server upload
-          final formData = FormData.fromMap({
-            'image': MultipartFile.fromBytes(bytes, filename: picked.name),
-          });
-          await dio.post(Endpoints.adminProductImage(widget.product.id), data: formData);
-        }
-      } else {
-        // Mobile: upload to Firebase Storage for permanent storage
-        String downloadUrl;
-        try {
-          final storageRef = FirebaseStorage.instance.ref().child(filename);
-          await storageRef.putData(bytes, SettableMetadata(contentType: 'image/$ext'));
-          downloadUrl = await storageRef.getDownloadURL();
-          await dio.post(Endpoints.adminProductImageUrl(widget.product.id),
-              data: {'url': downloadUrl});
-        } catch (fbError) {
-          // Firebase failed — fall back to server upload
-          final formData = FormData.fromMap({
-            'image': MultipartFile.fromBytes(bytes, filename: picked.name),
-          });
-          await dio.post(Endpoints.adminProductImage(widget.product.id), data: formData);
-        }
+      // Use signed URL flow — works on both web and mobile, no client-side Firebase auth needed
+      String? downloadUrl;
+      try {
+        downloadUrl = await uploadImageViaSignedUrl(
+          dio: dio,
+          bytes: bytes,
+          filename: filename,
+          contentType: 'image/$ext',
+        );
+      } catch (_) {
+        // Signed URL failed (Firebase not configured?) — fall back to server upload
+        final formData = FormData.fromMap({
+          'image': MultipartFile.fromBytes(bytes, filename: picked.name),
+        });
+        await dio.post(Endpoints.adminProductImage(widget.product.id), data: formData);
+        widget.onUploaded();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Image updated ✅'), backgroundColor: AppColors.primary));
+        return;
+      }
+
+      if (downloadUrl != null) {
+        await dio.post(Endpoints.adminProductImageUrl(widget.product.id),
+            data: {'url': downloadUrl});
       }
 
       widget.onUploaded();

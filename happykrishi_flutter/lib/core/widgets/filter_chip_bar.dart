@@ -1,10 +1,11 @@
+import '../theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'active_filter.dart';
 
 Color _chipColor(FilterType type) => switch (type) {
       FilterType.select => Colors.orange,
       FilterType.number => const Color(0xFF0277BD),
-      FilterType.text => const Color(0xFF2E7D32),
+      FilterType.text => AppColors.primary,
     };
 
 IconData _typeIcon(FilterType t) => switch (t) {
@@ -102,11 +103,11 @@ class _AddFilterButton extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: count > 0 ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+            color: count > 0 ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: count > 0
-                  ? const Color(0xFF2E7D32)
+                  ? AppColors.primary
                   : Colors.grey.shade300,
             ),
           ),
@@ -114,7 +115,7 @@ class _AddFilterButton extends StatelessWidget {
             Icon(Icons.add,
                 size: 14,
                 color: count > 0
-                    ? const Color(0xFF2E7D32)
+                    ? AppColors.primary
                     : Colors.grey.shade600),
             const SizedBox(width: 4),
             Text('Add Filter',
@@ -122,7 +123,7 @@ class _AddFilterButton extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: count > 0
-                      ? const Color(0xFF2E7D32)
+                      ? AppColors.primary
                       : Colors.grey.shade700,
                 )),
             if (count > 0) ...[
@@ -131,7 +132,7 @@ class _AddFilterButton extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2E7D32),
+                  color: AppColors.primary,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text('$count',
@@ -296,7 +297,7 @@ class _AddFilterSheetState extends State<AddFilterSheet> {
                         style: const TextStyle(fontSize: 11)),
                     trailing: active
                         ? const Icon(Icons.check_circle,
-                            color: Color(0xFF2E7D32), size: 18)
+                            color: AppColors.primary, size: 18)
                         : const Icon(Icons.chevron_right,
                             color: Colors.grey, size: 18),
                     onTap: active
@@ -446,7 +447,7 @@ class _AddFilterSheetState extends State<AddFilterSheet> {
                         if (f != null) widget.onAdd(f);
                       },
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2E7D32),
+                          backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
                           minimumSize: const Size(double.infinity, 46)),
                       child: const Text('Apply Filter'),

@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -87,7 +88,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Password changed successfully ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
         Navigator.of(context).pop();
       }
@@ -117,7 +118,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
     final email = user?.email;
     final hasEmail = email != null && email.isNotEmpty;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Icon(Icons.lock_reset, size: 52, color: Color(0xFF2E7D32)),
+      const Icon(Icons.lock_reset, size: 52, color: AppColors.primary),
       const SizedBox(height: 16),
       const Text('Change Password',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
@@ -127,16 +128,16 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
       Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFFE8F5E9),
+          color: const Color(0xFFEAF2EA),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.3)),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Row(children: [
-            Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 18),
+            Icon(Icons.check_circle, color: AppColors.primary, size: 18),
             SizedBox(width: 8),
             Text('Free — no charge', style: TextStyle(
-                fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                fontWeight: FontWeight.bold, color: AppColors.primary)),
           ]),
           const SizedBox(height: 6),
           Text(
@@ -172,13 +173,13 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
       Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFE8F5E9),
+          color: const Color(0xFFEAF2EA),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(children: [
           Icon(
             _sentTo == 'email' ? Icons.email_outlined : Icons.message_outlined,
-            color: const Color(0xFF2E7D32),
+            color: AppColors.primary,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -186,7 +187,7 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
               _sentTo == 'email'
                   ? 'OTP sent to email: $_hint'
                   : 'OTP sent to phone (****$_hint)',
-              style: const TextStyle(color: Color(0xFF2E7D32),
+              style: const TextStyle(color: AppColors.primary,
                   fontWeight: FontWeight.w600),
             ),
           ),

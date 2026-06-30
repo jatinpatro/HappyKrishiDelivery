@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -79,7 +80,7 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
       });
       ref.invalidate(_referralsProvider);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Referral settings saved ✅'), backgroundColor: Color(0xFF2E7D32)));
+          const SnackBar(content: Text('Referral settings saved ✅'), backgroundColor: AppColors.primary));
     } on DioException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -278,8 +279,8 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
                     setSt(() => phonesCtrl.text = all);
                   },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF2E7D32),
-                    side: const BorderSide(color: Color(0xFF2E7D32)),
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
                     padding: const EdgeInsets.symmetric(vertical: 11),
                   ),
                 ),
@@ -316,7 +317,7 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2E7D32),
+                    backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 13),
                   ),
@@ -335,7 +336,7 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Referral Program'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -402,9 +403,9 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
             // ── Settings panel ──────────────────────────────────────────────
             Container(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-              color: const Color(0xFFF9FBF9),
+              color: AppColors.background,
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1B5E20))),
+                const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryDark)),
                 const SizedBox(height: 10),
                 Row(children: [
                   Expanded(
@@ -427,13 +428,13 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
                 Row(children: [
                   Switch(
                     value: _enabled,
-                    activeTrackColor: const Color(0xFF2E7D32),
+                    activeTrackColor: AppColors.primary,
                     onChanged: (v) => setState(() => _enabled = v),
                   ),
                   Expanded(
                     child: Text(
                       _enabled ? 'Referral program enabled' : 'Referral program disabled',
-                      style: TextStyle(fontSize: 13, color: _enabled ? const Color(0xFF2E7D32) : Colors.grey),
+                      style: TextStyle(fontSize: 13, color: _enabled ? AppColors.primary : Colors.grey),
                     ),
                   ),
                 ]),
@@ -443,7 +444,7 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
                   child: ElevatedButton(
                     onPressed: _savingConfig ? null : _saveConfig,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32),
+                      backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
@@ -459,7 +460,7 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
             // ── Stats bar ───────────────────────────────────────────────────
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: const Color(0xFFE8F5E9),
+              color: const Color(0xFFEAF2EA),
               child: Row(children: [
                 _StatPill('${stats['total_codes']}', 'Total codes', Colors.indigo),
                 const SizedBox(width: 8),
@@ -467,7 +468,7 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
                 const SizedBox(width: 8),
                 _StatPill('₹${(stats['total_signup_credits'] as num).toStringAsFixed(0)}', 'Credits given', Colors.orange),
                 const SizedBox(width: 8),
-                _StatPill('₹${(stats['total_bonuses'] as num).toStringAsFixed(0)}', 'Bonuses paid', const Color(0xFF2E7D32)),
+                _StatPill('₹${(stats['total_bonuses'] as num).toStringAsFixed(0)}', 'Bonuses paid', AppColors.primary),
               ]),
             ),
             const Divider(height: 1),
@@ -517,13 +518,13 @@ class _AdminReferralsScreenState extends ConsumerState<AdminReferralsScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFE8F5E9),
+                                  color: const Color(0xFFEAF2EA),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.4)),
+                                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
                                 ),
                                 child: Text(r['code'] as String,
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
-                                        letterSpacing: 2, color: Color(0xFF2E7D32))),
+                                        letterSpacing: 2, color: AppColors.primary)),
                               ),
                               const SizedBox(width: 6),
                               if (isAdminCode)
@@ -754,7 +755,7 @@ class _GenericCodesSectionState extends ConsumerState<_GenericCodesSection> {
                   if (ctx.mounted) Navigator.pop(ctx);
                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text(existing != null ? 'Code updated ✅' : 'Generic code created ✅'),
-                    backgroundColor: const Color(0xFF2E7D32),
+                    backgroundColor: AppColors.primary,
                   ));
                 } catch (e) {
                   setSt(() => saving = false);
@@ -763,7 +764,7 @@ class _GenericCodesSectionState extends ConsumerState<_GenericCodesSection> {
                 }
               },
               style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+                  backgroundColor: AppColors.primary, foregroundColor: Colors.white),
               child: saving
                   ? const SizedBox(width: 16, height: 16,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
@@ -806,19 +807,19 @@ class _GenericCodesSectionState extends ConsumerState<_GenericCodesSection> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
           child: Row(children: [
-            const Icon(Icons.qr_code_2_outlined, size: 18, color: Color(0xFF2E7D32)),
+            const Icon(Icons.qr_code_2_outlined, size: 18, color: AppColors.primary),
             const SizedBox(width: 8),
             Expanded(child: Text(
               'Generic Codes${codes.isNotEmpty ? ' (${codes.length})' : ''}',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
-                  color: Color(0xFF1B5E20)),
+                  color: AppColors.primaryDark),
             )),
             TextButton.icon(
               icon: const Icon(Icons.add, size: 16),
               label: const Text('New'),
               onPressed: () => _showCreateEditDialog(),
               style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF2E7D32),
+                  foregroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
             ),
             Icon(_expanded ? Icons.expand_less : Icons.expand_more,
@@ -846,11 +847,11 @@ class _GenericCodesSectionState extends ConsumerState<_GenericCodesSection> {
               margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: isActive ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                color: isActive ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: isActive
-                      ? const Color(0xFF2E7D32).withValues(alpha: 0.3)
+                      ? AppColors.primary.withValues(alpha: 0.3)
                       : Colors.grey.shade300),
               ),
               child: Row(children: [
@@ -858,7 +859,7 @@ class _GenericCodesSectionState extends ConsumerState<_GenericCodesSection> {
                   Row(children: [
                     Text(c['code'] as String,
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14,
-                            letterSpacing: 2, color: Color(0xFF2E7D32))),
+                            letterSpacing: 2, color: AppColors.primary)),
                     const SizedBox(width: 8),
                     if (!isActive)
                       Container(
@@ -1029,7 +1030,7 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
         child: Row(children: [
-          const Icon(Icons.contacts_outlined, color: Color(0xFF2E7D32), size: 20),
+          const Icon(Icons.contacts_outlined, color: AppColors.primary, size: 20),
           const SizedBox(width: 8),
           const Expanded(child: Text('Select Contacts',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17))),
@@ -1037,7 +1038,7 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
             TextButton(
               onPressed: () => Navigator.pop(context, _selected.toList()),
               child: Text('Add ${_selected.length}',
-                  style: const TextStyle(color: Color(0xFF2E7D32),
+                  style: const TextStyle(color: AppColors.primary,
                       fontWeight: FontWeight.bold)),
             ),
           IconButton(icon: const Icon(Icons.close),
@@ -1086,7 +1087,7 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                   return ListTile(
                     leading: CircleAvatar(
                       backgroundColor: isSelected
-                          ? const Color(0xFF2E7D32)
+                          ? AppColors.primary
                           : Colors.grey.shade200,
                       child: isSelected
                           ? const Icon(Icons.check, color: Colors.white, size: 18)
@@ -1124,7 +1125,7 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
               child: ElevatedButton(
                 onPressed: () => Navigator.pop(context, _selected.toList()),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 13),
                 ),

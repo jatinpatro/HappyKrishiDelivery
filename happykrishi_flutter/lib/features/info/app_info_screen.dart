@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,10 +16,18 @@ final appInfoProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   return res.data as Map<String, dynamic>;
 });
 
-/// Compact banner showing delivery charge rules — use in cart/checkout
+/// Compact banner showing delivery charge rules — use in cart/checkout.
+/// If [fetchedCharge] is provided (pincode-resolved from backend), it takes
+/// precedence over the global free_delivery_above threshold for the free check.
 class DeliveryInfoBanner extends ConsumerWidget {
   final double? subtotal;
-  const DeliveryInfoBanner({super.key, this.subtotal});
+
+  /// Actual delivery charge fetched from the backend for the selected address.
+  /// When provided, shows pincode-aware free delivery status instead of the
+  /// global threshold.
+  final double? fetchedCharge;
+
+  const DeliveryInfoBanner({super.key, this.subtotal, this.fetchedCharge});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -28,46 +37,59 @@ class DeliveryInfoBanner extends ConsumerWidget {
         final delivery = data['delivery'] as Map<String, dynamic>;
         final freeAbove = (delivery['free_above'] as num).toDouble();
         final baseCharge = (delivery['base_charge'] as num).toDouble();
-        final remaining = subtotal != null ? freeAbove - subtotal! : null;
-        final isFree = subtotal != null && subtotal! >= freeAbove;
+
+        // If we have a pincode-resolved charge, use that to determine free status.
+        // Otherwise fall back to the global threshold.
+        final bool isFree;
+        final String message;
+        if (fetchedCharge != null) {
+          isFree = fetchedCharge == 0;
+          if (isFree) {
+            message = 'You qualify for FREE delivery! 🎉';
+          } else {
+            final remaining = subtotal != null ? freeAbove - subtotal! : null;
+            message = remaining != null && remaining > 0
+                ? 'Add ₹${remaining.toStringAsFixed(0)} more for FREE delivery. Delivery charge: ₹${fetchedCharge!.toStringAsFixed(0)}'
+                : 'Delivery charge for your area: ₹${fetchedCharge!.toStringAsFixed(0)}';
+          }
+        } else {
+          final remaining = subtotal != null ? freeAbove - subtotal! : null;
+          isFree = subtotal != null && subtotal! >= freeAbove;
+          if (isFree) {
+            message = 'You qualify for FREE delivery! 🎉';
+          } else if (remaining != null) {
+            message = 'Add ₹${remaining.toStringAsFixed(0)} more for FREE delivery (₹$freeAbove+). Delivery charge: ₹${baseCharge.toStringAsFixed(0)}';
+          } else {
+            message = 'Free delivery on orders ₹$freeAbove+. Delivery charge: ₹${baseCharge.toStringAsFixed(0)}';
+          }
+        }
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: isFree ? const Color(0xFFE8F5E9) : const Color(0xFFFFF8E1),
+            color: isFree ? const Color(0xFFEAF2EA) : const Color(0xFFFFF8E1),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isFree ? const Color(0xFF2E7D32) : Colors.orange.shade200,
+              color: isFree ? AppColors.primary : Colors.orange.shade200,
             ),
           ),
           child: Row(children: [
             Icon(
               isFree ? Icons.local_shipping : Icons.info_outline,
-              color: isFree ? const Color(0xFF2E7D32) : Colors.orange.shade700,
+              color: isFree ? AppColors.primary : Colors.orange.shade700,
               size: 18,
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: isFree
-                  ? const Text(
-                      'You qualify for FREE delivery! 🎉',
-                      style: TextStyle(
-                          color: Color(0xFF2E7D32),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13),
-                    )
-                  : remaining != null
-                      ? Text(
-                          'Add ₹${remaining.toStringAsFixed(0)} more for FREE delivery (₹$freeAbove+). Delivery charge: ₹${baseCharge.toStringAsFixed(0)}',
-                          style: TextStyle(
-                              color: Colors.orange.shade800, fontSize: 12),
-                        )
-                      : Text(
-                          'Free delivery on orders ₹$freeAbove+. Delivery charge: ₹${baseCharge.toStringAsFixed(0)}',
-                          style: TextStyle(
-                              color: Colors.orange.shade800, fontSize: 12),
-                        ),
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: isFree ? AppColors.primary : Colors.orange.shade800,
+                  fontWeight: isFree ? FontWeight.w600 : FontWeight.normal,
+                  fontSize: 13,
+                ),
+              ),
             ),
           ]),
         );
@@ -114,12 +136,12 @@ class AppInfoScreen extends ConsumerWidget {
                     height: 80,
                     fit: BoxFit.contain,
                     errorBuilder: (_, __, ___) => const Icon(
-                      Icons.agriculture, size: 80, color: Color(0xFF2E7D32)),
+                      Icons.agriculture, size: 80, color: AppColors.primary),
                   ),
                   const SizedBox(height: 10),
                   const Text('HappyKrishi',
                       style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold,
-                          color: Color(0xFF2E7D32), letterSpacing: 0.5)),
+                          color: AppColors.primary, letterSpacing: 0.5)),
                   const Text('Farm Fresh Delivery',
                       style: TextStyle(fontSize: 13, color: Colors.grey)),
                 ]),
@@ -131,8 +153,8 @@ class AppInfoScreen extends ConsumerWidget {
               iconWidget: Image.asset('assets/images/logo.png', height: 20, width: 20,
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.agriculture, color: Color(0xFF2E7D32), size: 20)),
-              iconColor: const Color(0xFF2E7D32),
+                      const Icon(Icons.agriculture, color: AppColors.primary, size: 20)),
+              iconColor: AppColors.primary,
               title: farm['name'] as String? ?? 'HappyKrishi',
               children: [
                 if ((farm['address'] as String? ?? '').isNotEmpty)
@@ -227,7 +249,7 @@ class AppInfoScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF1B5E20), Color(0xFF2E7D32)],
+                    colors: [AppColors.primaryDark, AppColors.primary],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -258,7 +280,7 @@ class AppInfoScreen extends ConsumerWidget {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
-                        foregroundColor: const Color(0xFF2E7D32),
+                        foregroundColor: AppColors.primary,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
@@ -348,11 +370,11 @@ class _ContactRow extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(children: [
-          Icon(icon, size: 18, color: color ?? const Color(0xFF2E7D32)),
+          Icon(icon, size: 18, color: color ?? AppColors.primary),
           const SizedBox(width: 10),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color ?? const Color(0xFF2E7D32))),
+            Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color ?? AppColors.primary)),
           ]),
           const Spacer(),
           const Icon(Icons.copy, size: 14, color: Colors.grey),

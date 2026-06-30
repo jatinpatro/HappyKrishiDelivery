@@ -77,6 +77,8 @@
 		<string>HappyKrishi uses your location to show the agent where to deliver your order.</string>
 		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 		<string>HappyKrishi uses your location to help the delivery agent find you.</string>
+		<key>NSContactsUsageDescription</key>
+		<string>HappyKrishi needs access to your contacts to select phone numbers for referral invites.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
 	</dict>

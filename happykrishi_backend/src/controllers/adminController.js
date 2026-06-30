@@ -238,7 +238,8 @@ function assignAgent(req, res) {
     notificationService.sendToUser(agent_id, 'New Delivery Assigned', `Order #${order.order_number} assigned to you`);
   }
 
-  notificationService.sendToUser(order.user_id, 'Salesman Assigned', 'A salesman has been assigned to your order');
+  notificationService.sendToUser(order.user_id, 'Salesman Assigned 🚚',
+    `${user.name} has been assigned to deliver your order #${order.order_number}. They will contact you soon.`);
   res.json({ message: 'Assigned successfully' });
 }
 

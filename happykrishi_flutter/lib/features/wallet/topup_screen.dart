@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
@@ -191,17 +192,23 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
     if (amount.isEmpty || double.tryParse(amount) == null) {
       _show('Enter an amount first'); return;
     }
+    // Format amount to 2 decimal places as required by UPI spec
+    final formattedAmount = double.parse(amount).toStringAsFixed(2);
     final uri = Uri.parse(
       'upi://pay?pa=${Uri.encodeComponent(upiId)}'
       '&pn=${Uri.encodeComponent(upiName)}'
-      '&am=$amount'
+      '&am=$formattedAmount'
       '&cu=INR'
+      '&mc=5411'  // merchant category: grocery stores
       '&tn=${Uri.encodeComponent('HappyKrishi Wallet Topup')}',
     );
     try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched) {
-        _show('No UPI app found. Please pay using the QR or UPI ID above.');
+      final launched = await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+      if (!launched && mounted) {
+        final launched2 = await launchUrl(uri);
+        if (!launched2 && mounted) {
+          _show('No UPI app found. Please pay using the QR or UPI ID above.');
+        }
       }
     } catch (_) {
       _show('No UPI app found. Please pay using the QR or UPI ID above.');
@@ -229,7 +236,7 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('UPI request submitted! Admin will verify and credit your wallet.'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -261,34 +268,71 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
             const SizedBox(height: 20),
 
             if (!_paidStep) ...[
-              // Step 1: Show QR + UPI ID
-              const Row(children: [
-                CircleAvatar(radius: 12, backgroundColor: Color(0xFF2E7D32),
+              // Step 1: How to pay card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Row(children: [
+                    Icon(Icons.info_outline, color: AppColors.primary, size: 18),
+                    SizedBox(width: 8),
+                    Text('How to pay', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primary)),
+                  ]),
+                  const SizedBox(height: 10),
+                  _HowToStep(step: '1', text: 'Open GPay, PhonePe or any UPI app on your phone'),
+                  _HowToStep(step: '2', text: 'Tap "Scan QR" and scan the QR code below'),
+                  _HowToStep(step: '3', text: 'OR tap the UPI ID below to copy and paste it in your app'),
+                  _HowToStep(step: '4', text: 'Enter the exact amount you chose above'),
+                  _HowToStep(step: '5', text: 'Complete the payment and note the UTR/Reference number'),
+                  _HowToStep(step: '6', text: 'Come back here, enter the UTR and tap "I have Paid"'),
+                ]),
+              ),
+              const SizedBox(height: 20),
+
+              // QR Code with download hint
+              Row(children: [
+                const CircleAvatar(radius: 12, backgroundColor: AppColors.primary,
                     child: Text('1', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
-                SizedBox(width: 8),
-                Text('Scan QR or pay to UPI ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(width: 8),
+                const Text('Scan QR Code', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const Spacer(),
+                if (qrUrl.isNotEmpty)
+                  TextButton.icon(
+                    icon: const Icon(Icons.download, size: 16),
+                    label: const Text('Save QR', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+                    onPressed: () async {
+                      final url = Endpoints.imageUrl(qrUrl);
+                      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                    },
+                  ),
               ]),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
 
               // QR Code
               if (qrUrl.isNotEmpty)
                 Center(
                   child: Container(
                     decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFF2E7D32), width: 3),
+                      border: Border.all(color: AppColors.primary, width: 3),
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)],
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(13),
                       child: Image.network(
-                        qrUrl.startsWith('http') ? qrUrl : '${Endpoints.baseUrl}$qrUrl',
+                        Endpoints.imageUrl(qrUrl),
                         width: 220, height: 220, fit: BoxFit.contain,
                         loadingBuilder: (_, child, chunk) => chunk == null
                             ? child
                             : const SizedBox(width: 220, height: 220,
                                 child: Center(child: CircularProgressIndicator())),
-                        errorBuilder: (context3, url2, err2) => const SizedBox(width: 220, height: 220,
+                        errorBuilder: (_, __, ___) => const SizedBox(width: 220, height: 220,
                             child: Center(child: Icon(Icons.qr_code, size: 80, color: Colors.grey))),
                       ),
                     ),
@@ -304,100 +348,62 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
                     child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                       Icon(Icons.qr_code, size: 60, color: Colors.grey),
                       SizedBox(height: 8),
-                      Text('QR not set yet', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      Text('QR not configured yet', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      Text('Contact admin', style: TextStyle(color: Colors.grey, fontSize: 11)),
                     ]),
                   ),
                 ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
+              const Center(child: Text('Screenshot or save this QR to pay later', style: TextStyle(fontSize: 11, color: Colors.grey))),
+              const SizedBox(height: 20),
 
               // UPI ID
+              Row(children: [
+                const CircleAvatar(radius: 12, backgroundColor: AppColors.primary,
+                    child: Text('2', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
+                const SizedBox(width: 8),
+                const Text('Or copy UPI ID', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              ]),
+              const SizedBox(height: 10),
+
               if (upiId.isNotEmpty)
                 GestureDetector(
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: upiId));
                     ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('UPI ID copied!'), duration: Duration(seconds: 1)));
+                        const SnackBar(content: Text('UPI ID copied! Paste it in your payment app.'), duration: Duration(seconds: 2)));
                   },
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E9),
+                      color: AppColors.primary.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF2E7D32)),
+                      border: Border.all(color: AppColors.primary),
                     ),
                     child: Row(children: [
-                      const Icon(Icons.account_balance_wallet, color: Color(0xFF2E7D32)),
+                      const Icon(Icons.account_balance_wallet, color: AppColors.primary),
                       const SizedBox(width: 12),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Text(upiName, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                        Text(upiId, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF2E7D32))),
+                        Text(upiId, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
                       ])),
-                      const Icon(Icons.copy, color: Color(0xFF2E7D32), size: 18),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.copy, color: Colors.white, size: 14),
+                          SizedBox(width: 4),
+                          Text('Copy', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ]),
+                      ),
                     ]),
                   ),
                 ),
-              const SizedBox(height: 6),
-              if (upiId.isNotEmpty)
-                const Center(child: Text('Tap to copy UPI ID', style: TextStyle(fontSize: 11, color: Colors.grey))),
-              const SizedBox(height: 16),
-
-              // Open UPI app — mobile only (upi:// scheme not supported in browsers)
-              if (upiId.isNotEmpty && !kIsWeb) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.open_in_new, size: 18),
-                    label: const Text('Open UPI App to Pay'),
-                    onPressed: () => _launchUpi(upiId, upiName),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Center(
-                  child: Text(
-                    'Opens GPay, PhonePe, Paytm or any UPI app',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              // Web: prompt to install app for direct UPI
-              if (upiId.isNotEmpty && kIsWeb) ...[
-                GestureDetector(
-                  onTap: () => launchUrl(
-                    Uri.parse('https://delivery.happykrishi.com/happykrishi-delivery.apk'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.deepPurple.shade200),
-                    ),
-                    child: Row(children: [
-                      Icon(Icons.android, color: Colors.deepPurple.shade600, size: 22),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('Install the App to pay via UPI directly',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13,
-                                color: Colors.deepPurple.shade700)),
-                        Text('Tap to download — opens GPay, PhonePe, Paytm automatically',
-                            style: TextStyle(fontSize: 11, color: Colors.deepPurple.shade400)),
-                      ])),
-                      Icon(Icons.download_outlined, color: Colors.deepPurple.shade600, size: 20),
-                    ]),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
+              const SizedBox(height: 20),
 
               SizedBox(
                 width: double.infinity,
@@ -410,7 +416,7 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
                     setState(() => _paidStep = true);
                   },
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32), padding: const EdgeInsets.symmetric(vertical: 14)),
+                      backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
                 ),
               ),
             ] else ...[
@@ -425,7 +431,7 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
                   ]),
                 ),
                 const SizedBox(width: 12),
-                const CircleAvatar(radius: 12, backgroundColor: Color(0xFF2E7D32),
+                const CircleAvatar(radius: 12, backgroundColor: AppColors.primary,
                     child: Text('2', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
                 const SizedBox(width: 8),
                 const Text('Enter payment reference', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
@@ -435,12 +441,12 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(12)),
+                    color: const Color(0xFFEAF2EA), borderRadius: BorderRadius.circular(12)),
                 child: Row(children: [
-                  const Icon(Icons.check_circle, color: Color(0xFF2E7D32)),
+                  const Icon(Icons.check_circle, color: AppColors.primary),
                   const SizedBox(width: 10),
                   Text('Amount: ₹${_amountCtrl.text}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
                 ]),
               ),
               const SizedBox(height: 16),
@@ -468,7 +474,7 @@ class _UpiTabViewState extends ConsumerState<_UpiTabView> {
                   label: const Text('Submit Payment Request'),
                   onPressed: widget.loading ? null : _submit,
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32), padding: const EdgeInsets.symmetric(vertical: 14)),
+                      backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
                 ),
               ),
             ],
@@ -523,7 +529,7 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Cash request submitted via $submittedVia! Admin will credit shortly.'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -578,13 +584,13 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: selected ? const Color(0xFF2E7D32) : Colors.white,
+                      color: selected ? AppColors.primary : Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: selected ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                          color: selected ? AppColors.primary : Colors.grey.shade300,
                           width: selected ? 2 : 1),
                       boxShadow: selected
-                          ? [BoxShadow(color: const Color(0xFF2E7D32).withValues(alpha: 0.25), blurRadius: 8)]
+                          ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.25), blurRadius: 8)]
                           : [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4)],
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -594,7 +600,7 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
                         child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: selected ? Colors.white : const Color(0xFF2E7D32),
+                              color: selected ? Colors.white : AppColors.primary,
                             )),
                       ),
                       const SizedBox(width: 10),
@@ -637,7 +643,7 @@ class _CashTabViewState extends ConsumerState<_CashTabView> {
                 if (cashAddress.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Icon(Icons.location_on, size: 14, color: Color(0xFF2E7D32)),
+                    const Icon(Icons.location_on, size: 14, color: AppColors.primary),
                     const SizedBox(width: 6),
                     Expanded(child: Text(cashAddress, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic))),
                   ]),
@@ -687,12 +693,31 @@ class _AmountPicker extends StatelessWidget {
       const SizedBox(height: 10),
       Wrap(
         spacing: 10, runSpacing: 8,
-        children: amounts.map((a) => ChoiceChip(
-          label: Text('₹$a', style: const TextStyle(fontWeight: FontWeight.w600)),
-          selected: ctrl.text == a.toString(),
-          selectedColor: const Color(0xFFE8F5E9),
-          onSelected: (_) => onTap(a),
-        )).toList(),
+        children: amounts.map((a) {
+          final isSelected = ctrl.text == a.toString();
+          return GestureDetector(
+            onTap: () => onTap(a),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.primary : AppColors.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: isSelected ? AppColors.primary : AppColors.primary.withValues(alpha: 0.3),
+                  width: isSelected ? 2 : 1,
+                ),
+              ),
+              child: Text(
+                '₹$a',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  color: isSelected ? Colors.white : AppColors.textPrimary,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
       ),
       const SizedBox(height: 12),
       TextField(
@@ -777,4 +802,25 @@ class _RequestTile extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── How-to step row ────────────────────────────────────────────────────────────
+class _HowToStep extends StatelessWidget {
+  final String step;
+  final String text;
+  const _HowToStep({required this.step, required this.text});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(
+        width: 20, height: 20,
+        decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+        child: Center(child: Text(step, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
+      ),
+      const SizedBox(width: 10),
+      Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: Colors.black87))),
+    ]),
+  );
 }

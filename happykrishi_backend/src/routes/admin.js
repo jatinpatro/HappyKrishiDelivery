@@ -182,4 +182,33 @@ router.get('/categories/all', (req, res) => {
   res.json({ categories: cats });
 });
 
+// ── Firebase Storage signed URL (admin-only image upload) ─────────────────────
+router.post('/storage/upload-url', requireRole('admin', 'subadmin'), async (req, res) => {
+  const { filename, contentType } = req.body;
+  if (!filename || !contentType) {
+    return res.status(400).json({ error: 'filename and contentType required' });
+  }
+  if (!contentType.startsWith('image/')) {
+    return res.status(400).json({ error: 'Only image files allowed' });
+  }
+  const { getFirebaseAdmin, STORAGE_BUCKET } = require('../config/firebase');
+  const admin = getFirebaseAdmin();
+  if (!admin) return res.status(503).json({ error: 'Firebase not configured' });
+
+  try {
+    const bucket = admin.storage().bucket(STORAGE_BUCKET);
+    const file = bucket.file(filename);
+    const [signedUrl] = await file.getSignedUrl({
+      action: 'write',
+      expires: Date.now() + 5 * 60 * 1000, // 5 minutes
+      contentType,
+    });
+    const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(filename)}?alt=media`;
+    res.json({ signedUrl, downloadUrl });
+  } catch (e) {
+    console.error('[Storage signed URL]', e.message);
+    res.status(500).json({ error: 'Failed to generate upload URL: ' + e.message });
+  }
+});
+
 module.exports = router;

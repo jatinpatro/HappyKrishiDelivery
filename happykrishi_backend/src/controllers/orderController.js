@@ -3,6 +3,7 @@ const walletService = require('../services/walletService');
 const { calcDeliveryCharge } = require('../services/deliveryChargeService');
 const notificationService = require('../services/notificationService');
 const whatsappService = require('../services/whatsappService');
+const { checkPromoRules } = require('../routes/promo');
 const { recalculateCustomerTier } = require('../services/tierService');
 const emailService = require('../services/emailService');
 
@@ -19,7 +20,8 @@ function generateOrderNumber() {
 
 function placeOrder(req, res) {
   const userId = req.user.id;
-  const { address_id, slot_id, delivery_date, items, notes, order_type = 'delivery', preferred_salesman_id } = req.body;
+  const { address_id, slot_id, delivery_date, items, notes, order_type = 'delivery',
+          preferred_salesman_id, coupon_code } = req.body;
 
   if (!delivery_date || !items?.length) {
     return res.status(400).json({ error: 'delivery_date and items are required' });
@@ -33,7 +35,7 @@ function placeOrder(req, res) {
 
   const minOrder = getConfig('min_order_amount') || 50;
 
-  const user = db.prepare('SELECT wallet_balance, email, tier_id FROM users WHERE id = ?').get(userId);
+  const user = db.prepare('SELECT wallet_balance, email, tier_id, name FROM users WHERE id = ?').get(userId);
   let pincodeRules = null;
   if (order_type === 'delivery') {
     address = db.prepare('SELECT * FROM addresses WHERE id = ? AND user_id = ?').get(address_id, userId);
@@ -88,13 +90,59 @@ function placeOrder(req, res) {
     return res.status(400).json({ error: `Minimum order amount for ${order_type === 'pickup' ? 'pickup' : 'your area'} is ₹${effectiveMinOrder}` });
   }
 
-  // Self pickup = free; custom pincode charge if set; else distance-based
-  const deliveryCharge = order_type === 'pickup'
-    ? 0
-    : pincodeRules?.deliveryCharge != null
-        ? pincodeRules.deliveryCharge
-        : calcDeliveryCharge(address.lat, address.lng, subtotal);
+  // Self pickup = free; tiered rules if set; legacy custom charge; else distance-based
+  let deliveryCharge;
+  if (order_type === 'pickup') {
+    deliveryCharge = 0;
+  } else if (address.pincode) {
+    const tiered = resolveDeliveryRule(address.pincode, subtotal);
+    if (tiered) {
+      if (tiered.blocked) {
+        return res.status(400).json({ error: tiered.blocked_message || 'Delivery not available for this order amount to your area' });
+      }
+      deliveryCharge = tiered.delivery_charge ?? calcDeliveryCharge(address.lat, address.lng, subtotal);
+    } else if (pincodeRules?.deliveryCharge != null) {
+      deliveryCharge = pincodeRules.deliveryCharge;
+    } else {
+      deliveryCharge = calcDeliveryCharge(address.lat, address.lng, subtotal);
+    }
+  } else {
+    deliveryCharge = pincodeRules?.deliveryCharge != null
+      ? pincodeRules.deliveryCharge
+      : calcDeliveryCharge(address.lat, address.lng, subtotal);
+  }
   const finalAmount = parseFloat((subtotal + deliveryCharge).toFixed(2));
+
+  // ── Promo code validation ─────────────────────────────────────────────────
+  let promoDiscount = 0;
+  let promoRow = null;
+  if (coupon_code) {
+    promoRow = db.prepare('SELECT * FROM promo_codes WHERE code = ? COLLATE NOCASE AND is_active = 1').get(coupon_code.trim());
+    if (!promoRow) return res.status(400).json({ error: 'Invalid or expired coupon code' });
+    const cartProductIds = resolvedItems.map(ri => ri.product.id);
+    const cartItems = resolvedItems.map(ri => ({ product_id: ri.product.id, qty: ri.qty, line_total: ri.lineTotal }));
+    const ruleError = checkPromoRules(promoRow, userId, subtotal, cartProductIds, cartItems);
+    if (ruleError) return res.status(400).json({ error: ruleError });
+
+    // Compute discount on qualifying total (not full cart) for product/category restricted codes
+    let qualifyingTotal = subtotal;
+    if (promoRow.allowed_product_ids) {
+      const allowed = JSON.parse(promoRow.allowed_product_ids).map(Number);
+      qualifyingTotal = cartItems.filter(i => allowed.includes(i.product_id)).reduce((s, i) => s + i.line_total, 0);
+    } else if (promoRow.allowed_category_ids) {
+      const allowed = JSON.parse(promoRow.allowed_category_ids).map(Number);
+      const cats = db.prepare(`SELECT id,category_id FROM products WHERE id IN (${cartProductIds.map(()=>'?').join(',')})`).all(...cartProductIds);
+      const qIds = cats.filter(p => allowed.includes(p.category_id)).map(p => p.id);
+      qualifyingTotal = cartItems.filter(i => qIds.includes(i.product_id)).reduce((s, i) => s + i.line_total, 0);
+    }
+    promoDiscount = promoRow.discount_type === 'percent'
+      ? (qualifyingTotal * promoRow.discount_value / 100)
+      : promoRow.discount_value;
+    if (promoRow.max_discount_amount) promoDiscount = Math.min(promoDiscount, promoRow.max_discount_amount);
+    promoDiscount = Math.min(promoDiscount, finalAmount);
+    promoDiscount = Math.round(promoDiscount * 100) / 100;
+  }
+  const discountedFinal = parseFloat((finalAmount - promoDiscount).toFixed(2));
 
   // Block order if resulting balance would exceed the allowed negative limit
   const tierRow = user.tier_id
@@ -103,7 +151,7 @@ function placeOrder(req, res) {
   const negLimit = tierRow?.max_wallet_negative_limit != null
     ? tierRow.max_wallet_negative_limit
     : parseFloat(db.prepare("SELECT value FROM app_config WHERE key='max_wallet_negative_limit'").get()?.value ?? '0');
-  const resultingBalance = parseFloat((user.wallet_balance - finalAmount).toFixed(2));
+  const resultingBalance = parseFloat((user.wallet_balance - discountedFinal).toFixed(2));
   if (resultingBalance < 0 && Math.abs(resultingBalance) > negLimit) {
     return res.status(400).json({
       error: `This order would take your balance to ₹${resultingBalance.toFixed(2)}, exceeding your ₹${negLimit.toFixed(0)} credit limit. Please top up first.`
@@ -115,12 +163,18 @@ function placeOrder(req, res) {
 
     const orderResult = db.prepare(`
       INSERT INTO orders (order_number, user_id, address_id, slot_id, status, delivery_date,
-        subtotal, delivery_charge, wallet_used, final_amount, payment_status, notes, order_type)
-      VALUES (?,?,?,?,?,?,?,?,?,?,'paid',?,?)
+        subtotal, delivery_charge, discount_amount, wallet_used, final_amount, payment_status, notes, order_type)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,'paid',?,?)
     `).run(orderNumber, userId, address_id || null, slot_id || null, 'pending', delivery_date,
-      subtotal, deliveryCharge, finalAmount, finalAmount, notes || null, order_type);
+      subtotal, deliveryCharge, promoDiscount, discountedFinal, discountedFinal, notes || null, order_type);
 
     const orderId = orderResult.lastInsertRowid;
+
+    // Record promo code usage
+    if (promoRow) {
+      db.prepare('INSERT INTO promo_code_uses (promo_code_id, user_id, order_id, discount_amount) VALUES (?,?,?,?)').run(promoRow.id, userId, orderId, promoDiscount);
+      db.prepare('UPDATE promo_codes SET use_count = use_count + 1 WHERE id = ?').run(promoRow.id);
+    }
 
     for (const ri of resolvedItems) {
       db.prepare(`
@@ -145,18 +199,31 @@ function placeOrder(req, res) {
 
     // Debit wallet — balance allowed to go negative (collected later)
     const userRow = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(userId);
-    const newBalance = parseFloat((userRow.wallet_balance - finalAmount).toFixed(2));
+    const newBalance = parseFloat((userRow.wallet_balance - discountedFinal).toFixed(2));
     db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBalance, userId);
     db.prepare(`
       INSERT INTO wallet_transactions (user_id, type, amount, balance_after, reference_type, reference_id, description)
       VALUES (?,?,?,?,?,?,?)
-    `).run(userId, 'debit', finalAmount, newBalance, 'order', orderId, `Order #${orderNumber}`);
+    `).run(userId, 'debit', discountedFinal, newBalance, 'order', orderId,
+      promoDiscount > 0 ? `Order #${orderNumber} (coupon ${coupon_code}: -₹${promoDiscount.toFixed(0)})` : `Order #${orderNumber}`);
 
     return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   });
 
   const order = txn();
   setImmediate(() => recalculateCustomerTier(userId));
+
+  // Low wallet balance warning
+  const lowBalanceThreshold = parseFloat(db.prepare("SELECT value FROM app_config WHERE key='low_wallet_warning_threshold'").get()?.value || '100');
+  const freshUser = db.prepare('SELECT wallet_balance FROM users WHERE id=?').get(userId);
+  if (freshUser && freshUser.wallet_balance < lowBalanceThreshold) {
+    const balanceStr = freshUser.wallet_balance < 0
+      ? `₹${Math.abs(freshUser.wallet_balance).toFixed(0)} in debt`
+      : `₹${freshUser.wallet_balance.toFixed(0)} remaining`;
+    notificationService.sendToUser(userId, '⚠️ Low Wallet Balance',
+      `Your wallet has ${balanceStr}. Top up to continue ordering without interruptions.`,
+      { type: 'low_balance' });
+  }
 
   const items_ = db.prepare(`
     SELECT oi.*, p.name as product_name, p.unit FROM order_items oi
@@ -194,10 +261,15 @@ function listOrders(req, res) {
   }
 
   const orders = db.prepare(`
-    SELECT o.*, s.label as slot_label, a.address_line, a.city
+    SELECT o.*, s.label as slot_label, a.address_line, a.city,
+           pc.code as coupon_code, pcu.discount_amount as coupon_discount,
+           d.delivery_code, d.customer_confirmed_at
     FROM orders o
     LEFT JOIN delivery_slots s ON s.id = o.slot_id
     LEFT JOIN addresses a ON a.id = o.address_id
+    LEFT JOIN promo_code_uses pcu ON pcu.order_id = o.id
+    LEFT JOIN promo_codes pc ON pc.id = pcu.promo_code_id
+    LEFT JOIN deliveries d ON d.order_id = o.id
     WHERE ${where} ORDER BY o.created_at DESC LIMIT ? OFFSET ?
   `).all(...params, parseInt(limit), offset);
 
@@ -208,11 +280,14 @@ function getOrder(req, res) {
   const order = db.prepare(`
     SELECT o.*, s.label as slot_label, s.start_time, s.end_time,
            a.address_line, a.city, a.pincode, a.lat, a.lng,
-           sm.name as salesman_name, sm.phone as salesman_phone
+           sm.name as salesman_name, sm.phone as salesman_phone,
+           pc.code as coupon_code, pcu.discount_amount as coupon_discount
     FROM orders o
     LEFT JOIN delivery_slots s ON s.id = o.slot_id
     LEFT JOIN addresses a ON a.id = o.address_id
     LEFT JOIN users sm ON sm.id = o.salesman_id
+    LEFT JOIN promo_code_uses pcu ON pcu.order_id = o.id
+    LEFT JOIN promo_codes pc ON pc.id = pcu.promo_code_id
     WHERE o.id = ? AND (o.user_id = ? OR ? IN ('admin','subadmin','agent','salesman'))
   `).get(req.params.id, req.user.id, req.user.role);
 
@@ -226,14 +301,68 @@ function getOrder(req, res) {
 
   const delivery = db.prepare(`
     SELECT d.*, u.name as agent_name, u.phone as agent_phone,
-           da.current_lat as agent_lat, da.current_lng as agent_lng
+           COALESCE(da.current_lat, sda.current_lat)   as agent_lat,
+           COALESCE(da.current_lng, sda.current_lng)   as agent_lng,
+           COALESCE(u.name, sm.name)                   as agent_name,
+           COALESCE(u.phone, sm.phone)                 as agent_phone,
+           d.customer_lat, d.customer_lng
     FROM deliveries d
-    LEFT JOIN delivery_agents da ON da.id = d.agent_id
-    LEFT JOIN users u ON u.id = da.user_id
+    LEFT JOIN delivery_agents da  ON da.id = d.agent_id
+    LEFT JOIN users u             ON u.id  = da.user_id
+    LEFT JOIN users sm            ON sm.id = (SELECT salesman_id FROM orders WHERE id = d.order_id)
+    LEFT JOIN delivery_agents sda ON sda.user_id = sm.id
     WHERE d.order_id = ?
   `).get(order.id);
 
-  res.json({ order, items, delivery });
+  // Only expose delivery_code to customer (owner) and admin/subadmin — not to salesman
+  const canSeeCode = req.user.id === order.user_id || ['admin', 'subadmin'].includes(req.user.role);
+  const deliveryOut = delivery && !canSeeCode
+    ? { ...delivery, delivery_code: undefined }
+    : delivery;
+
+  // Build per-item discount breakdown if a coupon was used
+  let itemBreakdown = null;
+  if (order.coupon_code && order.discount_amount > 0) {
+    const promoRow = db.prepare('SELECT * FROM promo_codes WHERE code = ? COLLATE NOCASE').get(order.coupon_code);
+    if (promoRow) {
+      const cartProductIds = items.map(i => i.product_id);
+      const hasProductRestriction = promoRow.allowed_product_ids && JSON.parse(promoRow.allowed_product_ids).length > 0;
+      const hasCategoryRestriction = promoRow.allowed_category_ids && JSON.parse(promoRow.allowed_category_ids).length > 0;
+      let qualifyingIds = cartProductIds;
+      if (hasProductRestriction) qualifyingIds = JSON.parse(promoRow.allowed_product_ids).map(Number);
+      else if (hasCategoryRestriction) {
+        const allowed = JSON.parse(promoRow.allowed_category_ids).map(Number);
+        const cats = db.prepare(`SELECT id,category_id FROM products WHERE id IN (${cartProductIds.map(()=>'?').join(',')})`).all(...cartProductIds);
+        qualifyingIds = cats.filter(p => allowed.includes(p.category_id)).map(p => p.id);
+      }
+      const qualifyingTotal = items.filter(i => qualifyingIds.includes(i.product_id)).reduce((s, i) => s + (i.actual_total ?? i.estimated_total), 0);
+      const totalDiscount = order.discount_amount;
+      itemBreakdown = {};
+      for (const item of items) {
+        const isQualifying = qualifyingIds.includes(item.product_id);
+        let itemDiscount = 0;
+        if (isQualifying && qualifyingTotal > 0) {
+          if (promoRow.discount_type === 'percent') {
+            // Apply percent to this item's share
+            const uncappedItemDiscount = (item.actual_total ?? item.estimated_total) * promoRow.discount_value / 100;
+            const uncappedTotal = qualifyingTotal * promoRow.discount_value / 100;
+            if (promoRow.max_discount_amount && uncappedTotal > promoRow.max_discount_amount) {
+              // Distribute the capped total proportionally across qualifying items
+              itemDiscount = promoRow.max_discount_amount * ((item.actual_total ?? item.estimated_total) / qualifyingTotal);
+            } else {
+              itemDiscount = uncappedItemDiscount;
+            }
+          } else {
+            itemDiscount = totalDiscount * ((item.actual_total ?? item.estimated_total) / qualifyingTotal);
+          }
+          itemDiscount = Math.round(itemDiscount * 100) / 100;
+        }
+        itemBreakdown[item.product_id] = { discount: itemDiscount, is_qualifying: isQualifying };
+      }
+    }
+  }
+
+  res.json({ order, items, delivery: deliveryOut, item_breakdown: itemBreakdown });
 }
 
 function cancelOrder(req, res) {
@@ -262,9 +391,7 @@ function cancelOrder(req, res) {
 
   db.transaction(() => {
     db.prepare("UPDATE orders SET status='cancelled', cancelled_reason=?, updated_at=datetime('now') WHERE id=?").run(reason || null, order.id);
-    // Cancel any active delivery for this order
     db.prepare("UPDATE deliveries SET status='cancelled', updated_at=datetime('now') WHERE order_id=? AND status NOT IN ('delivered','cancelled')").run(order.id);
-    // Refund wallet inline (avoid nested transaction)
     const userRow = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(order.user_id);
     const newBal = parseFloat((userRow.wallet_balance + order.final_amount).toFixed(2));
     db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBal, order.user_id);
@@ -274,6 +401,12 @@ function cancelOrder(req, res) {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
     for (const item of items) {
       db.prepare('UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?').run(item.estimated_qty, item.product_id);
+    }
+    // Restore promo code usage so customer can use it again on a future order
+    const promoUse = db.prepare('SELECT * FROM promo_code_uses WHERE order_id = ?').get(order.id);
+    if (promoUse) {
+      db.prepare('DELETE FROM promo_code_uses WHERE order_id = ?').run(order.id);
+      db.prepare('UPDATE promo_codes SET use_count = MAX(0, use_count - 1) WHERE id = ?').run(promoUse.promo_code_id);
     }
   })();
 
@@ -330,21 +463,42 @@ function getDeliveryCharge(req, res) {
     : db.prepare('SELECT lat, lng, pincode FROM addresses WHERE id = ? AND user_id = ?').get(address_id, req.user.id);
   if (!address) return res.status(404).json({ error: 'Address not found' });
 
-  // Check for custom delivery charge on this pincode first
+  const sub = parseFloat(subtotal || 0);
+
+  // Check tiered delivery rules first
   if (address.pincode) {
-    const cached = db.prepare(
-      'SELECT custom_delivery_charge FROM pincode_cache WHERE pincode = ? AND deliverable = 1'
-    ).get(address.pincode);
+    const tiered = resolveDeliveryRule(address.pincode, sub);
+    if (tiered !== null) {
+      if (tiered.blocked) {
+        return res.json({ delivery_charge: null, blocked: true, blocked_message: tiered.blocked_message || 'Delivery not available for this order amount' });
+      }
+      return res.json({ delivery_charge: tiered.delivery_charge, blocked: false });
+    }
+    // Fallback: legacy single custom_delivery_charge
+    const cached = db.prepare('SELECT custom_delivery_charge FROM pincode_cache WHERE pincode = ? AND deliverable = 1').get(address.pincode);
     if (cached?.custom_delivery_charge != null) {
-      return res.json({ delivery_charge: cached.custom_delivery_charge });
+      return res.json({ delivery_charge: cached.custom_delivery_charge, blocked: false });
     }
   }
 
-  const charge = calcDeliveryCharge(address.lat, address.lng, parseFloat(subtotal || 0));
-  res.json({ delivery_charge: charge });
+  const charge = calcDeliveryCharge(address.lat, address.lng, sub);
+  res.json({ delivery_charge: charge, blocked: false });
 }
 
-module.exports = { placeOrder, listOrders, getOrder, cancelOrder, cancelOrderByStaff, reorder, getDeliveryCharge, placeOrderForCustomer };
+// Resolve the best matching tiered delivery rule for a subtotal
+function resolveDeliveryRule(pincode, subtotal) {
+  const rules = db.prepare(`
+    SELECT * FROM pincode_delivery_rules
+    WHERE pincode = ?
+      AND min_subtotal <= ?
+      AND (max_subtotal IS NULL OR max_subtotal >= ?)
+    ORDER BY sort_order ASC, min_subtotal DESC
+    LIMIT 1
+  `).get(pincode, subtotal, subtotal);
+  return rules || null;
+}
+
+module.exports = { placeOrder, listOrders, getOrder, cancelOrder, cancelOrderByStaff, reorder, getDeliveryCharge, placeOrderForCustomer, resolveDeliveryRule };
 
 // ── Cancel order by admin or salesman (no cutoff restriction) ─────────────────
 function cancelOrderByStaff(req, res) {
@@ -384,6 +538,12 @@ function cancelOrderByStaff(req, res) {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
     for (const item of items) {
       db.prepare('UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?').run(item.estimated_qty, item.product_id);
+    }
+    // Restore promo code usage
+    const promoUse = db.prepare('SELECT * FROM promo_code_uses WHERE order_id = ?').get(order.id);
+    if (promoUse) {
+      db.prepare('DELETE FROM promo_code_uses WHERE order_id = ?').run(order.id);
+      db.prepare('UPDATE promo_codes SET use_count = MAX(0, use_count - 1) WHERE id = ?').run(promoUse.promo_code_id);
     }
   })();
 

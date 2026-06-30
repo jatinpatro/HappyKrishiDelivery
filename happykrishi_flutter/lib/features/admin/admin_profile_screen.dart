@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -60,7 +61,7 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
         setState(() => _changed = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(res.data['message'] as String? ?? 'Profile updated ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -105,10 +106,10 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
             child: Container(
               width: 80, height: 80,
               decoration: BoxDecoration(
-                color: const Color(0xFF2E7D32),
+                color: AppColors.primary,
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 3),
-                boxShadow: [BoxShadow(color: const Color(0xFF2E7D32).withValues(alpha: 0.3),
+                boxShadow: [BoxShadow(color: AppColors.primary.withValues(alpha: 0.3),
                     blurRadius: 12, offset: const Offset(0, 4))],
               ),
               child: Center(
@@ -125,12 +126,12 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
+                color: const Color(0xFFEAF2EA),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 (user?.role ?? 'admin').toUpperCase(),
-                style: const TextStyle(color: Color(0xFF2E7D32),
+                style: const TextStyle(color: AppColors.primary,
                     fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
               ),
             ),
@@ -168,7 +169,7 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
               prefixIcon: Icon(Icons.email_outlined),
               border: OutlineInputBorder(),
               helperText: 'Admin OTP is sent to this email',
-              helperStyle: TextStyle(color: Color(0xFF2E7D32)),
+              helperStyle: TextStyle(color: AppColors.primary),
             ),
           ),
 
@@ -216,8 +217,8 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
             icon: const Icon(Icons.lock_reset_outlined),
             label: const Text('Change Password'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF2E7D32),
-              side: const BorderSide(color: Color(0xFF2E7D32)),
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
             ),
             onPressed: () => _showChangePasswordDialog(context),
           ),
@@ -371,7 +372,7 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                         content: Text('Password changed successfully ✅'),
-                        backgroundColor: Color(0xFF2E7D32),
+                        backgroundColor: AppColors.primary,
                       ));
                     }
                   } on DioException catch (e) {
@@ -381,7 +382,7 @@ class _AdminProfileScreenState extends ConsumerState<AdminProfileScreen> {
                     }
                   }
                 },
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
                 child: saving
                     ? const SizedBox(width: 16, height: 16,
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))

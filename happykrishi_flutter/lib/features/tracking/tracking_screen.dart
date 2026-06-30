@@ -1,8 +1,10 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
@@ -25,7 +27,8 @@ final _trackingOrderProvider =
 
 class TrackingScreen extends ConsumerStatefulWidget {
   final int orderId;
-  const TrackingScreen({super.key, required this.orderId});
+  final bool shareLocation;
+  const TrackingScreen({super.key, required this.orderId, this.shareLocation = true});
 
   @override
   ConsumerState<TrackingScreen> createState() => _TrackingScreenState();
@@ -47,7 +50,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   void initState() {
     super.initState();
     _connectWs();
-    _startSharingLocation();
+    if (widget.shareLocation) _startSharingLocation();
   }
 
   // ── Customer location sharing ─────────────────────────────────────────────
@@ -98,8 +101,14 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
               (msg['lng'] as num).toDouble(),
             );
             _etaMinutes = msg['eta_minutes'] as int?;
-            _status = 'Agent is on the way';
+            _status = 'Salesman is on the way';
             if (_mapReady) _mapController.move(_agentLoc!, 15);
+          } else if (msg['type'] == 'customer_location') {
+            // Customer's real-time GPS — visible to salesman/admin on their tracking view
+            _customerLoc = LatLng(
+              (msg['lat'] as num).toDouble(),
+              (msg['lng'] as num).toDouble(),
+            );
           } else if (msg['type'] == 'status') {
             _status = _statusLabel(msg['status'] as String? ?? '');
           }
@@ -112,7 +121,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   }
 
   String _statusLabel(String s) => switch (s) {
-    'assigned'   => 'Agent assigned',
+    'assigned'   => 'Salesman assigned',
     'picked'     => 'Order picked up — on the way!',
     'delivered'  => 'Delivered ✅',
     'cancelled'  => 'Order cancelled',
@@ -130,16 +139,24 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   Widget build(BuildContext context) {
     final orderAsync = ref.watch(_trackingOrderProvider(widget.orderId));
 
+    final currentUser = ref.watch(authStateProvider).user;
+    final isAdmin    = currentUser?.role == 'admin' || currentUser?.role == 'subadmin';
+    final isSalesman = currentUser?.role == 'salesman';
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Track Order'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.home_outlined),
             tooltip: 'Home',
-            onPressed: () => context.go('/home'),
+            onPressed: () => isAdmin
+                ? context.go('/admin/dashboard')
+                : isSalesman
+                    ? context.go('/salesman')
+                    : context.go('/home'),
           ),
         ],
       ),
@@ -157,22 +174,33 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
               ? LatLng(addrLat, addrLng)
               : null;
 
-          // Agent initial location (from REST, then updates via WS)
+          // Salesman initial location (from REST, then updates via WS)
           if (_agentLoc == null && delivery != null) {
             final aLat = (delivery['agent_lat'] as num?)?.toDouble();
             final aLng = (delivery['agent_lng'] as num?)?.toDouble();
             if (aLat != null && aLng != null) {
               _agentLoc = LatLng(aLat, aLng);
-              if (_status == 'Connecting...') _status = 'Agent assigned';
+              if (_status == 'Connecting...') _status = 'Salesman assigned';
             }
           }
 
-          // Default map center: agent > delivery addr > farm
-          final center = _agentLoc ?? deliveryLoc ?? const LatLng(_farmLat, _farmLng);
+          // Customer GPS — last saved location, visible to admin/salesman on page load
+          if (_customerLoc == null && delivery != null) {
+            final cLat = (delivery['customer_lat'] as num?)?.toDouble();
+            final cLng = (delivery['customer_lng'] as num?)?.toDouble();
+            if (cLat != null && cLng != null) {
+              _customerLoc = LatLng(cLat, cLng);
+            }
+          }
+
+          // Map center: salesman/admin → delivery address; customer → salesman location
+          final center = widget.shareLocation
+              ? (_agentLoc ?? deliveryLoc ?? const LatLng(_farmLat, _farmLng))
+              : (deliveryLoc ?? _agentLoc ?? const LatLng(_farmLat, _farmLng));
 
           final orderNum  = order['order_number'] as String? ?? '#${widget.orderId}';
-          final agentName = delivery?['agent_name'] as String?;
-          final agentPhone = delivery?['agent_phone'] as String?;
+          final staffName = delivery?['agent_name'] as String?;
+          final staffPhone = delivery?['agent_phone'] as String?;
           final status    = order['status'] as String? ?? '';
           final deliveryDate = order['delivery_date'] as String? ?? '';
           final city      = order['city'] as String? ?? '';
@@ -193,12 +221,12 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                   userAgentPackageName: 'com.happykrishi.delivery',
                 ),
 
-                // Line from agent to delivery address
+                // Line from salesman to delivery address
                 if (_agentLoc != null && deliveryLoc != null)
                   PolylineLayer(polylines: [
                     Polyline(
                       points: [_agentLoc!, deliveryLoc],
-                      color: const Color(0xFF2E7D32),
+                      color: AppColors.primary,
                       strokeWidth: 4,
                       pattern: const StrokePattern.dotted(),
                     ),
@@ -243,20 +271,20 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                       ),
                     ),
 
-                  // Agent marker
+                  // Salesman marker
                   if (_agentLoc != null)
                     Marker(
                       point: _agentLoc!,
                       width: 52, height: 52,
                       child: Tooltip(
-                        message: agentName ?? 'Delivery Agent',
+                        message: staffName ?? 'Salesman',
                         child: Container(
                           decoration: BoxDecoration(
-                            color: const Color(0xFF2E7D32),
+                            color: AppColors.primary,
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 2.5),
                             boxShadow: [BoxShadow(
-                                color: const Color(0xFF2E7D32).withValues(alpha: 0.4),
+                                color: AppColors.primary.withValues(alpha: 0.4),
                                 blurRadius: 10)],
                           ),
                           child: const Icon(Icons.delivery_dining, color: Colors.white, size: 28),
@@ -270,7 +298,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                       point: _customerLoc!,
                       width: 44, height: 44,
                       child: Tooltip(
-                        message: 'Your location',
+                      message: widget.shareLocation ? 'Your location' : 'Customer location',
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.blue.shade700,
@@ -294,7 +322,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
               child: FloatingActionButton.small(
                 heroTag: 'fit',
                 backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF2E7D32),
+                foregroundColor: AppColors.primary,
                 onPressed: () {
                   final points = <LatLng>[
                     ?_agentLoc,
@@ -359,44 +387,122 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                       if (deliveryDate.isNotEmpty)
                         _InfoRow(Icons.calendar_today_outlined, deliveryDate),
 
-                      // Agent info
-                      if (agentName != null) ...[
+                      // Navigate button — shown to salesman (shareLocation=false, has delivery coords)
+                      if (!widget.shareLocation && deliveryLoc != null) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.navigation_outlined, size: 18),
+                            label: Text('Navigate to $addrLine${city.isNotEmpty ? ', $city' : ''}',
+                                overflow: TextOverflow.ellipsis),
+                            onPressed: () {
+                              final lat = deliveryLoc.latitude;
+                              final lng = deliveryLoc.longitude;
+                              final label = Uri.encodeComponent('$addrLine, $city');
+                              launchUrl(
+                                Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&destination_place_id=$label&travelmode=driving'),
+                                mode: LaunchMode.externalApplication,
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue.shade700,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 11),
+                            ),
+                          ),
+                        ),
+                      ],
+
+                      // Salesman info
+                      if (staffName != null) ...[
                         const SizedBox(height: 10),
                         const Divider(height: 1),
                         const SizedBox(height: 10),
                         Row(children: [
                           const CircleAvatar(
                             radius: 18,
-                            backgroundColor: Color(0xFFE8F5E9),
+                            backgroundColor: Color(0xFFEAF2EA),
                             child: Icon(Icons.delivery_dining,
-                                color: Color(0xFF2E7D32), size: 20),
+                                color: AppColors.primary, size: 20),
                           ),
                           const SizedBox(width: 10),
                           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(agentName,
+                            Text(staffName,
                                 style: const TextStyle(fontWeight: FontWeight.w600)),
-                            if (agentPhone != null)
-                              Text('+91 $agentPhone',
+                            if (staffPhone != null)
+                              Text('+91 $staffPhone',
                                   style: const TextStyle(
                                       color: Colors.grey, fontSize: 12)),
                           ]),
                           const Spacer(),
+                          if (staffPhone != null) ...[
+                            _ContactIcon(phone: staffPhone, isWhatsApp: false),
+                            const SizedBox(width: 6),
+                            _ContactIcon(phone: staffPhone, isWhatsApp: true),
+                            const SizedBox(width: 8),
+                          ],
                           if (_etaMinutes != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFE8F5E9),
+                                color: const Color(0xFFEAF2EA),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text('~$_etaMinutes min',
                                   style: const TextStyle(
-                                      color: Color(0xFF2E7D32),
+                                      color: AppColors.primary,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 13)),
                             ),
                         ]),
                       ],
+
+                      // Delivery code — show to customer (shareLocation=true) only
+                      Builder(builder: (ctx) {
+                        final code = delivery?['delivery_code'] as String?;
+                        final confirmed = delivery?['customer_confirmed_at'] != null;
+                        if (code == null || !widget.shareLocation) return const SizedBox.shrink();
+                        if (status == 'delivered' || status == 'cancelled') return const SizedBox.shrink();
+                        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const SizedBox(height: 10),
+                          const Divider(height: 1),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: confirmed ? Colors.green.shade50 : const Color(0xFFEAF2EA),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: confirmed ? Colors.green.shade400 : AppColors.primary.withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Row(children: [
+                                Icon(confirmed ? Icons.verified_outlined : Icons.lock_outline,
+                                    color: AppColors.primary, size: 14),
+                                const SizedBox(width: 6),
+                                Text(confirmed ? 'Delivery Confirmed' : 'Your Delivery Code',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primaryDark)),
+                              ]),
+                              const SizedBox(height: 6),
+                              Row(children: [
+                                Text(code, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold,
+                                    letterSpacing: 5, color: AppColors.primary)),
+                                const Spacer(),
+                                if (!confirmed)
+                                  _TrackingConfirmButton(orderId: widget.orderId),
+                                if (confirmed)
+                                  const Icon(Icons.check_circle, color: Colors.green, size: 24),
+                              ]),
+                              if (!confirmed)
+                                const Text('Tell this code to your salesman, or tap to confirm receipt',
+                                    style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            ]),
+                          ),
+                        ]);
+                      }),
 
                       // Location sharing status
                       const SizedBox(height: 10),
@@ -404,33 +510,41 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                       const SizedBox(height: 8),
                       Row(children: [
                         Icon(
-                          _locationError != null
-                              ? Icons.location_off_outlined
-                              : _sharingLocation
-                                  ? Icons.location_on
-                                  : Icons.location_searching,
+                          !widget.shareLocation
+                              ? Icons.admin_panel_settings_outlined
+                              : _locationError != null
+                                  ? Icons.location_off_outlined
+                                  : _sharingLocation
+                                      ? Icons.location_on
+                                      : Icons.location_searching,
                           size: 14,
-                          color: _locationError != null
-                              ? Colors.red
-                              : _sharingLocation
-                                  ? Colors.blue.shade700
-                                  : Colors.grey,
+                          color: !widget.shareLocation
+                              ? Colors.indigo
+                              : _locationError != null
+                                  ? Colors.red
+                                  : _sharingLocation
+                                      ? Colors.blue.shade700
+                                      : Colors.grey,
                         ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            _locationError ?? (_sharingLocation
-                                ? 'Sharing your location with agent'
-                                : 'Getting your location…'),
+                            !widget.shareLocation
+                                ? 'Admin view — monitoring only'
+                                : _locationError ?? (_sharingLocation
+                                    ? 'Sharing your location with salesman'
+                                    : 'Getting your location…'),
                             style: TextStyle(
                               fontSize: 12,
-                              color: _locationError != null
-                                  ? Colors.red
-                                  : Colors.grey,
+                              color: !widget.shareLocation
+                                  ? Colors.indigo
+                                  : _locationError != null
+                                      ? Colors.red
+                                      : Colors.grey,
                             ),
                           ),
                         ),
-                        if (_locationError != null)
+                        if (_locationError != null && widget.shareLocation)
                           TextButton(
                             onPressed: _startSharingLocation,
                             style: TextButton.styleFrom(
@@ -447,7 +561,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                           const SizedBox(
                             width: 14, height: 14,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Color(0xFF2E7D32)),
+                                strokeWidth: 2, color: AppColors.primary),
                           ),
                           const SizedBox(width: 8),
                           Text(_status,
@@ -478,7 +592,7 @@ class _StatusBadge extends StatelessWidget {
     'confirmed'  => (const Color(0xFF0277BD), Icons.check_circle_outline),
     'assigned'   => (const Color(0xFF6A1B9A), Icons.person_pin),
     'dispatched' => (const Color(0xFF00838F), Icons.local_shipping),
-    'delivered'  => (const Color(0xFF2E7D32), Icons.done_all),
+    'delivered'  => (AppColors.primary, Icons.done_all),
     'cancelled'  => (const Color(0xFFC62828), Icons.cancel_outlined),
     _ => (Colors.grey, Icons.help_outline),
   };
@@ -526,7 +640,7 @@ class _StatusStepper extends StatelessWidget {
         final done = stepIdx < idx;
         return Expanded(child: Container(
           height: 2,
-          color: done ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+          color: done ? AppColors.primary : Colors.grey.shade300,
         ));
       }
       final stepIdx = i ~/ 2;
@@ -536,10 +650,10 @@ class _StatusStepper extends StatelessWidget {
         Container(
           width: 24, height: 24,
           decoration: BoxDecoration(
-            color: done ? const Color(0xFF2E7D32) : Colors.grey.shade200,
+            color: done ? AppColors.primary : Colors.grey.shade200,
             shape: BoxShape.circle,
             border: active
-                ? Border.all(color: const Color(0xFF2E7D32), width: 2.5)
+                ? Border.all(color: AppColors.primary, width: 2.5)
                 : null,
           ),
           child: done
@@ -550,7 +664,7 @@ class _StatusStepper extends StatelessWidget {
         Text(_labels[stepIdx],
             style: TextStyle(
               fontSize: 9,
-              color: done ? const Color(0xFF2E7D32) : Colors.grey,
+              color: done ? AppColors.primary : Colors.grey,
               fontWeight: active ? FontWeight.bold : FontWeight.normal,
             )),
       ]);
@@ -576,4 +690,107 @@ class _InfoRow extends StatelessWidget {
           maxLines: 1, overflow: TextOverflow.ellipsis)),
     ]),
   );
+}
+
+// ── Confirm delivery button (used in tracking screen) ─────────────────────────
+
+class _TrackingConfirmButton extends ConsumerStatefulWidget {
+  final int orderId;
+  const _TrackingConfirmButton({required this.orderId});
+  @override
+  ConsumerState<_TrackingConfirmButton> createState() => _TrackingConfirmButtonState();
+}
+
+class _TrackingConfirmButtonState extends ConsumerState<_TrackingConfirmButton> {
+  bool _loading = false;
+
+  Future<void> _confirm() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Delivery?'),
+        content: const Text('Confirm you have received your order. The salesman will be notified.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            child: const Text('Yes, I received it'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      await ref.read(dioProvider).post(Endpoints.orderConfirmDelivery(widget.orderId));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Delivery confirmed ✅'),
+          backgroundColor: AppColors.primary,
+        ));
+      }
+      // Refresh the tracking provider
+      ref.invalidate(_trackingOrderProvider(widget.orderId));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not confirm — try again')));
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _loading
+        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
+        : ElevatedButton(
+            onPressed: _confirm,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              textStyle: const TextStyle(fontSize: 11),
+            ),
+            child: const Text('I Received It'),
+          );
+  }
+}
+
+// ── Contact icon button (call or WhatsApp) ────────────────────────────────────
+
+class _ContactIcon extends StatelessWidget {
+  final String phone;
+  final bool isWhatsApp;
+  const _ContactIcon({required this.phone, required this.isWhatsApp});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        final uri = isWhatsApp
+            ? Uri.parse('https://wa.me/91$phone')
+            : Uri.parse('tel:+91$phone');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: isWhatsApp ? Colors.green.shade50 : Colors.blue.shade50,
+          shape: BoxShape.circle,
+          border: Border.all(
+              color: isWhatsApp ? Colors.green.shade300 : Colors.blue.shade300),
+        ),
+        child: Icon(
+          isWhatsApp ? Icons.chat_outlined : Icons.call_outlined,
+          size: 15,
+          color: isWhatsApp ? Colors.green.shade700 : Colors.blue.shade700,
+        ),
+      ),
+    );
+  }
 }

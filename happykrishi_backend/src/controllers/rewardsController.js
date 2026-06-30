@@ -79,12 +79,14 @@ function calculateRewards(req, res) {
 
   for (const rule of rules) {
     // Find every eligible order NOT yet in reward_payouts for this rule
+    // spend_amount = actual amount paid for qualifying items
+    // = estimated_total × (final_amount / subtotal) to account for promo discounts
     let orderQuery;
     if (rule.type === 'product_cashback') {
       orderQuery = db.prepare(`
         SELECT o.id as order_id, o.user_id,
-               SUM(oi.estimated_total) as spend_amount,
-               SUM(oi.estimated_qty)   as qty_purchased
+               SUM(COALESCE(oi.actual_total, oi.estimated_total) * CASE WHEN o.subtotal > 0 THEN (o.final_amount + COALESCE(o.delivery_charge,0)) / (o.subtotal + COALESCE(o.delivery_charge,0)) ELSE 1 END) as spend_amount,
+               SUM(COALESCE(oi.actual_qty, oi.estimated_qty)) as qty_purchased
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
         WHERE oi.product_id = ?
@@ -99,8 +101,8 @@ function calculateRewards(req, res) {
     } else {
       orderQuery = db.prepare(`
         SELECT o.id as order_id, o.user_id,
-               SUM(oi.estimated_total) as spend_amount,
-               SUM(oi.estimated_qty)   as qty_purchased
+               SUM(COALESCE(oi.actual_total, oi.estimated_total) * CASE WHEN o.subtotal > 0 THEN (o.final_amount + COALESCE(o.delivery_charge,0)) / (o.subtotal + COALESCE(o.delivery_charge,0)) ELSE 1 END) as spend_amount,
+               SUM(COALESCE(oi.actual_qty, oi.estimated_qty)) as qty_purchased
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
         JOIN products p ON p.id = oi.product_id

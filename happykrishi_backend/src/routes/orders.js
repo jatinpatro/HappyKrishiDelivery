@@ -23,7 +23,14 @@ router.post('/:id/customer-location', (req, res) => {
     return res.status(400).json({ error: 'Order is no longer active' });
   }
 
-  // Broadcast to the order room (agent sees it on their screen)
+  // Save to deliveries table so admin/salesman see it on page load
+  const delivery = db.prepare('SELECT id FROM deliveries WHERE order_id = ?').get(order.id);
+  if (delivery) {
+    db.prepare("UPDATE deliveries SET customer_lat=?, customer_lng=? WHERE id=?")
+      .run(parseFloat(lat), parseFloat(lng), delivery.id);
+  }
+
+  // Broadcast to the order room (salesman/admin see it on their screen)
   const wsServer = require('../websocket/server');
   wsServer.broadcast(order.id, {
     type: 'customer_location',
@@ -33,6 +40,24 @@ router.post('/:id/customer-location', (req, res) => {
   });
 
   res.json({ message: 'Location shared' });
+});
+
+// Customer confirms they received the delivery (in-app confirmation)
+router.post('/:id/confirm-delivery', (req, res) => {
+  const db = require('../config/database');
+  const order = db.prepare('SELECT id, user_id, status FROM orders WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!['assigned', 'dispatched', 'picked'].includes(order.status)) {
+    return res.status(400).json({ error: 'Order is not in a deliverable state' });
+  }
+  const delivery = db.prepare("SELECT id FROM deliveries WHERE order_id = ? AND status IN ('assigned','picked')").get(order.id);
+  if (!delivery) return res.status(404).json({ error: 'No active delivery found' });
+
+  db.prepare("UPDATE deliveries SET customer_confirmed_at=datetime('now') WHERE id=?").run(delivery.id);
+  const wsServer = require('../websocket/server');
+  wsServer.broadcast(order.id, { type: 'customer_confirmed', order_id: order.id });
+  res.json({ message: 'Delivery confirmed' });
 });
 
 module.exports = router;

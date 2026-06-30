@@ -212,7 +212,7 @@ ThemeData buildAppTheme() {
       backgroundColor: AppColors.primary,
       foregroundColor: Colors.white,
       elevation: 4,
-      shape: CircleBorder(),
+      // No shape override — lets extended FABs use their natural pill/stadium shape
     ),
   );
 }

@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -216,7 +217,7 @@ class _SalesmanDashboardScreenState extends ConsumerState<SalesmanDashboardScree
         },
         icon: const Icon(Icons.add_shopping_cart),
         label: const Text('Place Order'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
       ),
     );
   }
@@ -423,7 +424,7 @@ class _PendingOrderCardState extends ConsumerState<_PendingOrderCard> {
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               child: Text('Confirm & Assign to $selectedName'),
             ),
           ],
@@ -451,7 +452,7 @@ class _PendingOrderCardState extends ConsumerState<_PendingOrderCard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Confirmed & assigned to $selectedName ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {
@@ -555,7 +556,7 @@ class _PendingOrderCardState extends ConsumerState<_PendingOrderCard> {
               label: const Text('Confirm & Assign'),
               onPressed: _loading ? null : _confirmAndAssign,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32),
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 11),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -629,9 +630,9 @@ class _CollectionsTabState extends ConsumerState<_CollectionsTab>
         color: Colors.white,
         child: TabBar(
           controller: _innerTabs,
-          labelColor: const Color(0xFF2E7D32),
+          labelColor: AppColors.primary,
           unselectedLabelColor: Colors.grey,
-          indicatorColor: const Color(0xFF2E7D32),
+          indicatorColor: AppColors.primary,
           tabs: [
             Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
               const Text('Approve', style: TextStyle(fontSize: 12)),
@@ -715,7 +716,7 @@ class _CollectionsTabState extends ConsumerState<_CollectionsTab>
                         Expanded(child: _StatCard(
                             label: 'Settled\nby Admin', icon: Icons.check_circle,
                             value: '₹${((st['total'] as num?) ?? 0).toStringAsFixed(0)}',
-                            count: (st['count'] as int?) ?? 0, color: const Color(0xFF2E7D32))),
+                            count: (st['count'] as int?) ?? 0, color: AppColors.primary)),
                       ]),
                     ]);
                   },
@@ -768,7 +769,7 @@ class _CollectionsTabState extends ConsumerState<_CollectionsTab>
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text('₹${amount.toStringAsFixed(0)} credited to $customerName ✅'),
-                              backgroundColor: const Color(0xFF2E7D32),
+                              backgroundColor: AppColors.primary,
                             ));
                           }
                         } catch (e, st) {
@@ -1024,10 +1025,10 @@ class _RaiseSettlementTabState extends ConsumerState<_RaiseSettlementTab> {
 
           if (unsettled.isEmpty) {
             return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 56),
+              Icon(Icons.check_circle, color: AppColors.primary, size: 56),
               SizedBox(height: 12),
               Text('All collections settled ✅',
-                  style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.w600, fontSize: 15)),
+                  style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 15)),
               SizedBox(height: 6),
               Text('Nothing to raise for admin right now.',
                   style: TextStyle(color: Colors.grey, fontSize: 13)),
@@ -1515,7 +1516,7 @@ class _PendingCollectionCard extends StatelessWidget {
             ])),
             Text('₹${amount.toStringAsFixed(0)}',
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold,
-                    color: Color(0xFF2E7D32))),
+                    color: AppColors.primary)),
           ]),
           const SizedBox(height: 10),
           SizedBox(
@@ -1524,7 +1525,7 @@ class _PendingCollectionCard extends StatelessWidget {
               icon: const Icon(Icons.account_balance_wallet, size: 18),
               label: Text('Approve & Credit ₹${amount.toStringAsFixed(0)} to Wallet'),
               onPressed: onApprove,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             ),
           ),
         ]),
@@ -1550,10 +1551,10 @@ class _CustomersTabState extends ConsumerState<_CustomersTab> {
   String get _providerKey => '$_search|$_walletFilter|$_sortFilter';
 
   static const _walletOptions = [
-    (key: '',         label: 'All',        color: Color(0xFF2E7D32)),
+    (key: '',         label: 'All',        color: AppColors.primary),
     (key: 'negative', label: '🔴 Negative', color: Color(0xFFC62828)),
     (key: 'zero',     label: '⚪ Zero',     color: Color(0xFF757575)),
-    (key: 'positive', label: '🟢 Positive', color: Color(0xFF2E7D32)),
+    (key: 'positive', label: '🟢 Positive', color: AppColors.primary),
     (key: 'low',      label: '🟡 Low',      color: Color(0xFFE65100)),
   ];
 
@@ -1742,7 +1743,7 @@ class _CustomersTabState extends ConsumerState<_CustomersTab> {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Customer added ✅'),
-                            backgroundColor: Color(0xFF2E7D32)));
+                            backgroundColor: AppColors.primary));
                   }
                 } on DioException catch (e) {
                   if (context.mounted) {
@@ -1797,7 +1798,7 @@ class _CustomerTile extends ConsumerWidget {
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // Avatar
           CircleAvatar(
-            backgroundColor: const Color(0xFF2E7D32),
+            backgroundColor: AppColors.primary,
             radius: 20,
             child: Text(name.substring(0, 1).toUpperCase(),
                 style: const TextStyle(color: Colors.white,
@@ -1817,20 +1818,20 @@ class _CustomerTile extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: isLow ? Colors.red.shade50 : const Color(0xFFE8F5E9),
+                  color: isLow ? Colors.red.shade50 : const Color(0xFFEAF2EA),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                      color: isLow ? Colors.red.shade200 : const Color(0xFF2E7D32).withValues(alpha: 0.3)),
+                      color: isLow ? Colors.red.shade200 : AppColors.primary.withValues(alpha: 0.3)),
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.account_balance_wallet_outlined,
-                      size: 12, color: isLow ? Colors.red : const Color(0xFF2E7D32)),
+                      size: 12, color: isLow ? Colors.red : AppColors.primary),
                   const SizedBox(width: 4),
                   Text('₹${balance.toStringAsFixed(0)}',
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: isLow ? Colors.red : const Color(0xFF2E7D32))),
+                          color: isLow ? Colors.red : AppColors.primary)),
                 ]),
               ),
               if (isLow) ...[
@@ -1865,7 +1866,7 @@ class _CustomerTile extends ConsumerWidget {
             // Place order
             IconButton(
               icon: const Icon(Icons.add_shopping_cart_outlined,
-                  color: Color(0xFF2E7D32), size: 20),
+                  color: AppColors.primary, size: 20),
               tooltip: 'Place Order',
               onPressed: () async {
                 final placed = await Navigator.of(context).push<bool>(
@@ -1878,7 +1879,7 @@ class _CustomerTile extends ConsumerWidget {
             ),
             // Credit advance
             IconButton(
-              icon: const Icon(Icons.add_card_outlined, color: Color(0xFF2E7D32), size: 20),
+              icon: const Icon(Icons.add_card_outlined, color: AppColors.primary, size: 20),
               tooltip: 'Credit Advance',
               onPressed: () => _showCreditAdvanceDialog(context, ref, id, name, onRefresh),
             ),
@@ -1935,7 +1936,7 @@ class _CustomerTile extends ConsumerWidget {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
                     content: Text('₹${amount.toStringAsFixed(0)} credit advance given to $name ✅'),
-                    backgroundColor: const Color(0xFF2E7D32),
+                    backgroundColor: AppColors.primary,
                   ));
                 }
                 onRefresh();
@@ -1943,7 +1944,7 @@ class _CustomerTile extends ConsumerWidget {
                 if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Error: $e')));
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Give Credit'),
           ),
         ],
@@ -2035,7 +2036,7 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
       helpText: 'Filter by Date',
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-            colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32))),
+            colorScheme: const ColorScheme.light(primary: AppColors.primary)),
         child: child!,
       ),
     );
@@ -2082,7 +2083,7 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
           ),
           const SizedBox(height: 10),
           Row(children: [
-            _SummaryPill('✅ ${completed.length}', '₹${totalDelivered.toStringAsFixed(0)}', const Color(0xFF2E7D32)),
+            _SummaryPill('✅ ${completed.length}', '₹${totalDelivered.toStringAsFixed(0)}', AppColors.primary),
             const SizedBox(width: 6),
             _SummaryPill('🚚 ${inProgress.length}', 'in progress', Colors.blue),
             const SizedBox(width: 6),
@@ -2098,7 +2099,7 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
             child: Row(children: [
               _HChip('All', _section == 'all', () => setState(() => _section = 'all')),
               const SizedBox(width: 6),
-              _HChip('✅ Delivered', _section == 'delivered', () => setState(() => _section = 'delivered'), color: const Color(0xFF2E7D32)),
+              _HChip('✅ Delivered', _section == 'delivered', () => setState(() => _section = 'delivered'), color: AppColors.primary),
               const SizedBox(width: 6),
               _HChip('🚚 In Progress', _section == 'inprogress', () => setState(() => _section = 'inprogress'), color: Colors.blue),
               const SizedBox(width: 6),
@@ -2117,17 +2118,17 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: _dateFrom != null ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                    color: _dateFrom != null ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: _dateFrom != null ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+                    border: Border.all(color: _dateFrom != null ? AppColors.primary : Colors.grey.shade300),
                   ),
                   child: Row(children: [
-                    Icon(Icons.date_range, size: 16, color: _dateFrom != null ? const Color(0xFF2E7D32) : Colors.grey),
+                    Icon(Icons.date_range, size: 16, color: _dateFrom != null ? AppColors.primary : Colors.grey),
                     const SizedBox(width: 8),
                     Expanded(child: Text(
                       '${_fmt(from)} → ${_fmt(to)}',
                       style: TextStyle(fontSize: 12,
-                        color: _dateFrom != null ? const Color(0xFF2E7D32) : Colors.grey.shade700,
+                        color: _dateFrom != null ? AppColors.primary : Colors.grey.shade700,
                         fontWeight: _dateFrom != null ? FontWeight.w600 : FontWeight.normal),
                     )),
                     const Icon(Icons.edit_calendar_outlined, size: 14, color: Colors.grey),
@@ -2171,7 +2172,7 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
                 const SizedBox(height: 20),
               ],
               if (_section == 'all' || _section == 'delivered') ...[
-                _SectionHeader('Deliveries Completed', completed.length, const Color(0xFF2E7D32)),
+                _SectionHeader('Deliveries Completed', completed.length, AppColors.primary),
                 const SizedBox(height: 8),
                 completed.isEmpty ? _Empty('No deliveries in this period')
                     : Column(children: completed.map((o) => _DeliveryHistoryTile(order: o)).toList()),
@@ -2252,7 +2253,7 @@ class _HChip extends StatelessWidget {
   final VoidCallback onTap;
   final Color color;
   const _HChip(this.label, this.selected, this.onTap,
-      {this.color = const Color(0xFF2E7D32)});
+      {this.color = AppColors.primary});
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
@@ -2300,8 +2301,8 @@ class _DeliveryHistoryTile extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const CircleAvatar(radius: 14, backgroundColor: Color(0xFFE8F5E9),
-                child: Icon(Icons.check, color: Color(0xFF2E7D32), size: 16)),
+            const CircleAvatar(radius: 14, backgroundColor: Color(0xFFEAF2EA),
+                child: Icon(Icons.check, color: AppColors.primary, size: 16)),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('#${order['order_number']}  •  $customerName',
@@ -2310,7 +2311,7 @@ class _DeliveryHistoryTile extends StatelessWidget {
                   style: const TextStyle(fontSize: 11, color: Colors.grey)),
             ])),
             Text('₹${amount.toStringAsFixed(0)}',
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
           ]),
           if (items.isNotEmpty) ...[
             const SizedBox(height: 6),
@@ -2326,7 +2327,7 @@ class _DeliveryHistoryTile extends StatelessWidget {
                 if (isAdj && act != null) ...[
                   Text('${act.toStringAsFixed(2)} $unit',
                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold,
-                          color: Color(0xFF2E7D32))),
+                          color: AppColors.primary)),
                   if ((act - est).abs() > 0.01)
                     Text('  (est ${est.toStringAsFixed(2)})',
                         style: const TextStyle(fontSize: 10, color: Colors.grey)),
@@ -2448,7 +2449,7 @@ class _ApprovedOrderTile extends StatelessWidget {
   const _ApprovedOrderTile({required this.order});
 
   Color _statusColor(String s) => switch (s) {
-    'delivered'  => const Color(0xFF2E7D32),
+    'delivered'  => AppColors.primary,
     'cancelled'  => Colors.red,
     'dispatched' || 'picked' => Colors.blue,
     'assigned'   => Colors.indigo,
@@ -2572,8 +2573,8 @@ class _HistoryCollectionTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
       child: ListTile(
-        leading: const CircleAvatar(backgroundColor: Color(0xFFE8F5E9),
-            child: Icon(Icons.check, color: Color(0xFF2E7D32), size: 18)),
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF2EA),
+            child: Icon(Icons.check, color: AppColors.primary, size: 18)),
         title: Text('₹${amount.toStringAsFixed(0)} — $customer',
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         subtitle: Text(date, style: const TextStyle(fontSize: 11, color: Colors.grey)),
@@ -2594,8 +2595,8 @@ class _SettlementTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       color: Colors.grey.shade50,
       child: ListTile(
-        leading: const CircleAvatar(backgroundColor: Color(0xFFE8F5E9),
-            child: Icon(Icons.account_balance, color: Color(0xFF2E7D32), size: 18)),
+        leading: const CircleAvatar(backgroundColor: Color(0xFFEAF2EA),
+            child: Icon(Icons.account_balance, color: AppColors.primary, size: 18)),
         title: Text('₹${amount.toStringAsFixed(0)} settled to central account',
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         subtitle: Text('$date${note != null ? '  •  $note' : ''}',
@@ -2639,12 +2640,12 @@ class _DeliveriesTab extends ConsumerWidget {
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                          color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(10)),
+                          color: const Color(0xFFEAF2EA), borderRadius: BorderRadius.circular(10)),
                       child: Row(children: [
-                        const Icon(Icons.check_circle, color: Color(0xFF2E7D32)),
+                        const Icon(Icons.check_circle, color: AppColors.primary),
                         const SizedBox(width: 8),
                         Text('$completedToday delivered today',
-                            style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold)),
+                            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
                       ]),
                     ),
                   const Text('Assigned Deliveries',
@@ -2686,7 +2687,7 @@ class _DeliveryOrderCard extends ConsumerWidget {
           padding: const EdgeInsets.all(14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Icon(Icons.receipt_long, color: Color(0xFF2E7D32), size: 18),
+            const Icon(Icons.receipt_long, color: AppColors.primary, size: 18),
             const SizedBox(width: 8),
             Text('Order #${order['order_number']}',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
@@ -2745,7 +2746,7 @@ class _DeliveryOrderCard extends ConsumerWidget {
             const Spacer(),
             Text('₹${amount.toStringAsFixed(0)}',
                 style: const TextStyle(fontWeight: FontWeight.bold,
-                    color: Color(0xFF2E7D32), fontSize: 14)),
+                    color: AppColors.primary, fontSize: 14)),
           ]),
           const SizedBox(height: 8),
           // Show items
@@ -2796,8 +2797,8 @@ class _DeliveryOrderCard extends ConsumerWidget {
                   label: const Text('Track on Map'),
                   onPressed: () => context.push('/salesman/track/$orderId'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF2E7D32),
-                    side: const BorderSide(color: Color(0xFF2E7D32)),
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     textStyle: const TextStyle(fontSize: 13),
                   ),
@@ -2833,7 +2834,7 @@ class _DeliveryOrderCard extends ConsumerWidget {
                   label: const Text('Open & Mark Delivered'),
                   onPressed: () => context.push('/salesman/orders/$orderId'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+                      backgroundColor: AppColors.primary, foregroundColor: Colors.white),
                 ),
               ),
             ],
@@ -2972,7 +2973,7 @@ class _StockTabState extends ConsumerState<_StockTab> {
                     ('all', 'All (${all.length})', Colors.grey),
                     ('low', 'Low Stock ($lowCount)', Colors.orange),
                     ('out', 'Out of Stock', Colors.red),
-                    ('active', 'Active', const Color(0xFF2E7D32)),
+                    ('active', 'Active', AppColors.primary),
                     ('inactive', 'Inactive', Colors.blueGrey),
                   ])
                     Padding(
@@ -3130,7 +3131,7 @@ class _StockProductTileState extends ConsumerState<_StockProductTile> {
 
     Color statusColor = isOut ? Colors.red
         : isLow ? Colors.orange
-        : const Color(0xFF2E7D32);
+        : AppColors.primary;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -3151,7 +3152,7 @@ class _StockProductTileState extends ConsumerState<_StockProductTile> {
             borderRadius: BorderRadius.circular(10),
             child: imageUrl != null
                 ? Image.network(
-                    '${Endpoints.baseUrl}$imageUrl',
+                    Endpoints.imageUrl(imageUrl),
                     width: 56, height: 56, fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => _avatarBox(name, isActive),
                   )
@@ -3214,7 +3215,7 @@ class _StockProductTileState extends ConsumerState<_StockProductTile> {
                     // Quick increment
                     _StepBtn(
                       icon: Icons.add,
-                      color: const Color(0xFF2E7D32),
+                      color: AppColors.primary,
                       onTap: () => _quickUpdate(stock + 1),
                     ),
                     const SizedBox(width: 8),
@@ -3236,7 +3237,7 @@ class _StockProductTileState extends ConsumerState<_StockProductTile> {
                     // Active toggle
                     Switch.adaptive(
                       value: isActive,
-                      activeColor: const Color(0xFF2E7D32),
+                      activeColor: AppColors.primary,
                       onChanged: _toggleActive,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
@@ -3250,13 +3251,13 @@ class _StockProductTileState extends ConsumerState<_StockProductTile> {
   Widget _avatarBox(String name, bool isActive) => Container(
     width: 56, height: 56,
     decoration: BoxDecoration(
-      color: isActive ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+      color: isActive ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
       borderRadius: BorderRadius.circular(10),
     ),
     child: Center(child: Text(name[0].toUpperCase(),
         style: TextStyle(
             fontSize: 22, fontWeight: FontWeight.bold,
-            color: isActive ? const Color(0xFF2E7D32) : Colors.grey))),
+            color: isActive ? AppColors.primary : Colors.grey))),
   );
 
   Future<void> _quickUpdate(double newQty) async {

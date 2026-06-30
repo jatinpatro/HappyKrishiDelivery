@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -233,7 +234,7 @@ class _PlaceOrderForCustomerScreenState
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('Order placed for ${_selectedCustomer!['name']} ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
         Navigator.of(context).pop(true);
       }
@@ -272,14 +273,14 @@ class _CustomerStep extends ConsumerWidget {
           margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFE8F5E9),
+            color: const Color(0xFFEAF2EA),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF2E7D32)),
+            border: Border.all(color: AppColors.primary),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               CircleAvatar(
-                backgroundColor: const Color(0xFF2E7D32),
+                backgroundColor: AppColors.primary,
                 child: Text(
                   (selected!['name'] as String).substring(0, 1).toUpperCase(),
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -296,7 +297,7 @@ class _CustomerStep extends ConsumerWidget {
             const SizedBox(height: 10),
             ElevatedButton(
               onPressed: onNext,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               child: const Text('Next — Select Products →'),
             ),
           ]),
@@ -327,11 +328,11 @@ class _CustomerStep extends ConsumerWidget {
                 final c = filtered[i];
                 final isSelected = selected != null && selected!['id'] == c['id'];
                 return Card(
-                  color: isSelected ? const Color(0xFFE8F5E9) : null,
+                  color: isSelected ? const Color(0xFFEAF2EA) : null,
                   margin: const EdgeInsets.only(bottom: 6),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: isSelected ? const Color(0xFF2E7D32) : Colors.grey.shade200,
+                      backgroundColor: isSelected ? AppColors.primary : Colors.grey.shade200,
                       child: Text(
                         (c['name'] as String).substring(0, 1).toUpperCase(),
                         style: TextStyle(
@@ -346,7 +347,7 @@ class _CustomerStep extends ConsumerWidget {
                       style: const TextStyle(fontSize: 12),
                     ),
                     trailing: isSelected
-                        ? const Icon(Icons.check_circle, color: Color(0xFF2E7D32))
+                        ? const Icon(Icons.check_circle, color: AppColors.primary)
                         : null,
                     onTap: () => onSelect(c),
                   ),
@@ -466,7 +467,7 @@ class _ProductsStepState extends ConsumerState<_ProductsStep> {
                         Text('₹${p.pricePerUnit}/${p.unit}  •  Stock: ${p.stockQty.toStringAsFixed(1)}',
                             style: const TextStyle(fontSize: 12, color: Colors.grey)),
                         if (p.categoryName != null)
-                          Text(p.categoryName!, style: const TextStyle(fontSize: 11, color: Color(0xFF2E7D32))),
+                          Text(p.categoryName!, style: const TextStyle(fontSize: 11, color: AppColors.primary)),
                       ])),
                       _QtyControl(
                         qty: qty,
@@ -500,7 +501,7 @@ class _ProductsStepState extends ConsumerState<_ProductsStep> {
             child: ElevatedButton(
               onPressed: widget.cart.isEmpty ? null : widget.onNext,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32),
+                backgroundColor: AppColors.primary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               child: Text(widget.cart.isEmpty
@@ -590,7 +591,7 @@ class _QtyControlState extends State<_QtyControl> {
         child: Container(
           width: 28, height: 28,
           decoration: BoxDecoration(
-            color: const Color(0xFF2E7D32), borderRadius: BorderRadius.circular(8)),
+            color: AppColors.primary, borderRadius: BorderRadius.circular(8)),
           child: const Icon(Icons.add, size: 16, color: Colors.white),
         ),
       ),
@@ -657,11 +658,11 @@ class _CheckoutStep extends ConsumerWidget {
     return ListView(padding: const EdgeInsets.all(16), children: [
       // Customer info
       Card(
-        color: const Color(0xFFE8F5E9),
+        color: const Color(0xFFEAF2EA),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(children: [
-            const Icon(Icons.person, color: Color(0xFF2E7D32)),
+            const Icon(Icons.person, color: AppColors.primary),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(customer!['name'] as String,
@@ -669,7 +670,7 @@ class _CheckoutStep extends ConsumerWidget {
               Text('Wallet: ₹${walletBalance.toStringAsFixed(2)}',
                   style: TextStyle(
                       fontSize: 13,
-                      color: walletBalance >= subtotal ? const Color(0xFF2E7D32) : Colors.red,
+                      color: walletBalance >= subtotal ? AppColors.primary : Colors.red,
                       fontWeight: FontWeight.w600)),
             ])),
           ]),
@@ -702,7 +703,7 @@ class _CheckoutStep extends ConsumerWidget {
               : Column(children: list.map((a) {
                   final sel = selectedAddressId == a.id;
                   return Card(
-                    color: sel ? const Color(0xFFE8F5E9) : null,
+                    color: sel ? const Color(0xFFEAF2EA) : null,
                     margin: const EdgeInsets.only(bottom: 6),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
@@ -711,7 +712,7 @@ class _CheckoutStep extends ConsumerWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         child: Row(children: [
                           Icon(sel ? Icons.radio_button_checked : Icons.radio_button_off,
-                              color: sel ? const Color(0xFF2E7D32) : Colors.grey),
+                              color: sel ? AppColors.primary : Colors.grey),
                           const SizedBox(width: 10),
                           Expanded(child: Text('${a.label}: ${a.addressLine}, ${a.city}',
                               style: const TextStyle(fontSize: 13))),
@@ -739,7 +740,7 @@ class _CheckoutStep extends ConsumerWidget {
             lastDate: now.add(const Duration(days: 14)),
             builder: (ctx, child) => Theme(
               data: Theme.of(ctx).copyWith(
-                  colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32))),
+                  colorScheme: const ColorScheme.light(primary: AppColors.primary)),
               child: child!,
             ),
           );
@@ -751,15 +752,15 @@ class _CheckoutStep extends ConsumerWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFF2E7D32)),
+              border: Border.all(color: AppColors.primary),
               borderRadius: BorderRadius.circular(10)),
           child: Row(children: [
-            const Icon(Icons.calendar_today, color: Color(0xFF2E7D32), size: 18),
+            const Icon(Icons.calendar_today, color: AppColors.primary, size: 18),
             const SizedBox(width: 10),
             Text(deliveryDate,
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
             const Spacer(),
-            const Text('Change', style: TextStyle(color: Color(0xFF2E7D32), fontSize: 12)),
+            const Text('Change', style: TextStyle(color: AppColors.primary, fontSize: 12)),
           ]),
         ),
       ),
@@ -772,7 +773,7 @@ class _CheckoutStep extends ConsumerWidget {
         data: (list) => Column(children: list.map((s) {
           final sel = selectedSlotId == s.id;
           return Card(
-            color: sel ? const Color(0xFFE8F5E9) : null,
+            color: sel ? const Color(0xFFEAF2EA) : null,
             margin: const EdgeInsets.only(bottom: 6),
             child: InkWell(
               onTap: () => onSlotChanged(s.id),
@@ -780,7 +781,7 @@ class _CheckoutStep extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Row(children: [
                   Icon(sel ? Icons.radio_button_checked : Icons.radio_button_off,
-                      color: sel ? const Color(0xFF2E7D32) : Colors.grey),
+                      color: sel ? AppColors.primary : Colors.grey),
                   const SizedBox(width: 10),
                   Expanded(child: Text(s.label, style: const TextStyle(fontSize: 13))),
                   Text('${s.startTime} – ${s.endTime}',
@@ -875,7 +876,7 @@ class _CheckoutStep extends ConsumerWidget {
               orderType == 'delivery' && !freeDelivery && selectedAddressId != null && fetchedCharge == null
                   ? '₹${subtotal.toStringAsFixed(2)} + delivery'
                   : '₹${(subtotal + effectiveDeliveryCharge).toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF2E7D32)),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primary),
             ),
           ]),
           if (walletAlreadyNegative)
@@ -932,7 +933,7 @@ class _CheckoutStep extends ConsumerWidget {
           label: Text(placing ? 'Placing...' : 'Place Order for Customer'),
           onPressed: canPlace ? onPlace : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF2E7D32),
+            backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
@@ -950,16 +951,16 @@ class _CheckoutStep extends ConsumerWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: sel ? const Color(0xFFE8F5E9) : Colors.grey.shade50,
+          color: sel ? const Color(0xFFEAF2EA) : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: sel ? const Color(0xFF2E7D32) : Colors.grey.shade300, width: sel ? 2 : 1),
+          border: Border.all(color: sel ? AppColors.primary : Colors.grey.shade300, width: sel ? 2 : 1),
         ),
         child: Column(children: [
           Text(label, style: TextStyle(
             fontWeight: FontWeight.bold, fontSize: 13,
-            color: sel ? const Color(0xFF2E7D32) : Colors.black87,
+            color: sel ? AppColors.primary : Colors.black87,
           ), textAlign: TextAlign.center),
-          if (sel) const Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 16),
+          if (sel) const Icon(Icons.check_circle, color: AppColors.primary, size: 16),
         ]),
       ),
     );
@@ -979,10 +980,10 @@ class _CatChip extends StatelessWidget {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFF2E7D32) : Colors.grey.shade100,
+            color: selected ? AppColors.primary : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+              color: selected ? AppColors.primary : Colors.grey.shade300,
             ),
           ),
           child: Text(label,

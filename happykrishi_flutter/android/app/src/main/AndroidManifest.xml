@@ -4,6 +4,8 @@
     <!-- Location permissions for customer tracking -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Contacts — for admin referral invite picker -->
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
     <application
         android:label="HappyKrishi Delivery"
         android:name="${applicationName}"

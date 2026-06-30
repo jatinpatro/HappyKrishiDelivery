@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -168,7 +169,7 @@ class _PendingCollectionCardState extends ConsumerState<_PendingCollectionCard> 
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
         ElevatedButton(onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Approve & Credit')),
       ],
     ));
@@ -179,7 +180,7 @@ class _PendingCollectionCardState extends ConsumerState<_PendingCollectionCard> 
       widget.onApproved();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('₹${amount.toStringAsFixed(0)} credited to $name ✅'),
-          backgroundColor: const Color(0xFF2E7D32)));
+          backgroundColor: AppColors.primary));
     } catch (e, st) {
       logError('sm-collection', e, st);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
@@ -208,14 +209,14 @@ class _PendingCollectionCardState extends ConsumerState<_PendingCollectionCard> 
           ])),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
             Text('₹${amount.toStringAsFixed(0)}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF2E7D32))),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
             const SizedBox(height: 4),
             _loading
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                 : ElevatedButton(
                     onPressed: _approve,
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white,
+                        backgroundColor: AppColors.primary, foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         textStyle: const TextStyle(fontSize: 11)),
                     child: const Text('Approve')),
@@ -277,19 +278,19 @@ class _AdvancesTabState extends ConsumerState<_AdvancesTab> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(
-              color: hasDate ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+              color: hasDate ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: hasDate ? const Color(0xFF2E7D32) : Colors.grey.shade300),
+              border: Border.all(color: hasDate ? AppColors.primary : Colors.grey.shade300),
             ),
             child: Row(children: [
               Icon(Icons.date_range_outlined, size: 16,
-                  color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                  color: hasDate ? AppColors.primary : Colors.grey),
               const SizedBox(width: 8),
               Expanded(child: Text(
                 hasDate
                     ? '${_dateFrom != null ? _fmt(_dateFrom!) : '…'}  →  ${_dateTo != null ? _fmt(_dateTo!) : '…'}'
                     : 'Filter by date (this month by default)',
-                style: TextStyle(fontSize: 13, color: hasDate ? const Color(0xFF2E7D32) : Colors.grey),
+                style: TextStyle(fontSize: 13, color: hasDate ? AppColors.primary : Colors.grey),
               )),
               if (hasDate)
                 GestureDetector(
@@ -531,7 +532,7 @@ class _SettlementsTabState extends ConsumerState<_SettlementsTab>
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
         ElevatedButton(onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Raise')),
       ],
     ));
@@ -547,7 +548,7 @@ class _SettlementsTabState extends ConsumerState<_SettlementsTab>
       _noteCtrl.clear();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('₹${total.toStringAsFixed(0)} raised to admin ✅'),
-          backgroundColor: const Color(0xFF2E7D32)));
+          backgroundColor: AppColors.primary));
     } catch (e, st) {
       logError('sm-settle', e, st);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
@@ -572,7 +573,7 @@ class _SettlementsTabState extends ConsumerState<_SettlementsTab>
           // Summary bar
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: const Color(0xFFE8F5E9),
+            color: const Color(0xFFEAF2EA),
             child: Row(children: [
               _Chip('${unsettled.length} to settle', '₹${totalUnsettled.toStringAsFixed(0)}', Colors.orange),
               const SizedBox(width: 8),
@@ -606,7 +607,7 @@ class _SettlementsTabState extends ConsumerState<_SettlementsTab>
                           ? 'Select collections to raise'
                           : '${_selected.length} selected · ₹${selectedTotal.toStringAsFixed(0)}',
                       style: TextStyle(fontSize: 13,
-                          color: _selected.isEmpty ? Colors.grey : const Color(0xFF2E7D32),
+                          color: _selected.isEmpty ? Colors.grey : AppColors.primary,
                           fontWeight: _selected.isEmpty ? FontWeight.normal : FontWeight.bold),
                     )),
                     TextButton(
@@ -646,8 +647,8 @@ class _SettlementsTabState extends ConsumerState<_SettlementsTab>
                       subtitle: Text('+91 ${r['customer_phone'] ?? ''} · ${(r['created_at'] as String).substring(0, 10)}',
                           style: const TextStyle(fontSize: 12)),
                       secondary: Text('₹${(r['amount'] as num).toStringAsFixed(0)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2E7D32), fontSize: 15)),
-                      activeColor: const Color(0xFF2E7D32),
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 15)),
+                      activeColor: AppColors.primary,
                       contentPadding: EdgeInsets.zero,
                     );
                   }),
@@ -663,7 +664,7 @@ class _SettlementsTabState extends ConsumerState<_SettlementsTab>
                                 : 'Raise ₹${selectedTotal.toStringAsFixed(0)} to Admin'),
                             onPressed: _selected.isEmpty ? null : () => _raiseSettlement(unsettled),
                             style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white,
+                                backgroundColor: AppColors.primary, foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 12)),
                           ),
                   ),

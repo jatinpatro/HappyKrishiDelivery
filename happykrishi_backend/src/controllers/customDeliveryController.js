@@ -126,6 +126,19 @@ function rejectRequest(req, res) {
 }
 
 // ── Admin: list all whitelisted (custom) pincodes ─────────────────────────────
+function listPincodeAddresses(req, res) {
+  const addresses = db.prepare(`
+    SELECT a.id, a.label, a.address_line, a.city, a.pincode,
+           u.id as user_id, u.name as customer_name, u.phone as customer_phone,
+           u.wallet_balance
+    FROM addresses a
+    JOIN users u ON u.id = a.user_id
+    WHERE a.pincode = ?
+    ORDER BY u.name
+  `).all(req.params.pincode);
+  res.json({ addresses, count: addresses.length });
+}
+
 function listWhitelistedPincodes(req, res) {
   const pincodes = db.prepare(`
     SELECT pc.pincode, pc.district, pc.state, pc.distance_km,
@@ -226,4 +239,63 @@ module.exports = {
   submitRequest, myRequests,
   listRequests, approveRequest, rejectRequest,
   listWhitelistedPincodes, removeWhitelistedPincode, updateWhitelistedPincode,
+  listPincodeRules, upsertPincodeRule, deletePincodeRule,
+  listPincodeAddresses,
 };
+
+// ── Pincode delivery rules (tiered) ──────────────────────────────────────────
+
+function listPincodeRules(req, res) {
+  const rules = db.prepare(`
+    SELECT * FROM pincode_delivery_rules
+    WHERE pincode = ?
+    ORDER BY sort_order ASC, min_subtotal ASC
+  `).all(req.params.pincode);
+  res.json({ rules });
+}
+
+function upsertPincodeRule(req, res) {
+  const pincode = req.params.pincode;
+  const { id, min_subtotal, max_subtotal, delivery_charge, blocked, blocked_message, sort_order } = req.body;
+
+  if (min_subtotal == null || min_subtotal < 0) {
+    return res.status(400).json({ error: 'min_subtotal is required and must be >= 0' });
+  }
+  if (!blocked && delivery_charge == null) {
+    return res.status(400).json({ error: 'delivery_charge is required unless rule is blocked' });
+  }
+
+  if (id) {
+    db.prepare(`
+      UPDATE pincode_delivery_rules
+      SET min_subtotal=?, max_subtotal=?, delivery_charge=?, blocked=?, blocked_message=?, sort_order=?
+      WHERE id=? AND pincode=?
+    `).run(
+      parseFloat(min_subtotal), max_subtotal != null ? parseFloat(max_subtotal) : null,
+      delivery_charge != null ? parseFloat(delivery_charge) : null,
+      blocked ? 1 : 0, blocked_message || null,
+      sort_order ?? 0, id, pincode
+    );
+    return res.json({ message: 'Rule updated' });
+  }
+
+  const result = db.prepare(`
+    INSERT INTO pincode_delivery_rules (pincode, min_subtotal, max_subtotal, delivery_charge, blocked, blocked_message, sort_order)
+    VALUES (?,?,?,?,?,?,?)
+  `).run(
+    pincode,
+    parseFloat(min_subtotal),
+    max_subtotal != null ? parseFloat(max_subtotal) : null,
+    delivery_charge != null ? parseFloat(delivery_charge) : null,
+    blocked ? 1 : 0, blocked_message || null,
+    sort_order ?? 0
+  );
+  res.status(201).json({ message: 'Rule added', id: result.lastInsertRowid });
+}
+
+function deletePincodeRule(req, res) {
+  db.prepare('DELETE FROM pincode_delivery_rules WHERE id=? AND pincode=?').run(
+    parseInt(req.params.ruleId), req.params.pincode
+  );
+  res.json({ message: 'Rule deleted' });
+}

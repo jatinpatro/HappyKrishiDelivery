@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -174,7 +175,7 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Approved & pincode whitelisted ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {
@@ -280,7 +281,7 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Rules updated ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {
@@ -368,12 +369,12 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
           // Header row
           Row(children: [
             CircleAvatar(
-              backgroundColor: const Color(0xFFE8F5E9),
+              backgroundColor: const Color(0xFFEAF2EA),
               radius: 18,
               child: Text(
                 (r['name'] as String).substring(0, 1).toUpperCase(),
                 style: const TextStyle(
-                    color: Color(0xFF2E7D32), fontWeight: FontWeight.bold),
+                    color: AppColors.primary, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(width: 10),
@@ -401,7 +402,7 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
 
           // Pincode + address
           Row(children: [
-            const Icon(Icons.location_pin, size: 15, color: Color(0xFF2E7D32)),
+            const Icon(Icons.location_pin, size: 15, color: AppColors.primary),
             const SizedBox(width: 6),
             Text('Pincode: ${r['pincode']}',
                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
@@ -478,7 +479,7 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
                     label: const Text('Edit Rules'),
                     onPressed: _loading ? null : _editApproved,
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E7D32),
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
                         minimumSize: Size.zero,
                         padding: const EdgeInsets.symmetric(vertical: 10)),
@@ -506,7 +507,7 @@ class _AdminRequestCardState extends ConsumerState<_AdminRequestCard> {
                     label: Text(isPending ? 'Approve' : 'Re-approve'),
                     onPressed: _loading ? null : _approve,
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E7D32),
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
                         minimumSize: Size.zero,
                         padding: const EdgeInsets.symmetric(vertical: 10)),
@@ -565,11 +566,11 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
             margin: const EdgeInsets.symmetric(vertical: 10),
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFE8F5E9),
+              color: const Color(0xFFEAF2EA),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(children: [
-              const Icon(Icons.location_pin, color: Color(0xFF2E7D32), size: 16),
+              const Icon(Icons.location_pin, color: AppColors.primary, size: 16),
               const SizedBox(width: 8),
               Text(
                 'Pincode: ${widget.request['pincode']}  •  ${widget.request['name']}  •  +91 ${widget.request['phone']}',
@@ -627,7 +628,7 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
             ),
             Switch(
               value: _restrictProducts,
-              activeThumbColor: const Color(0xFF2E7D32),
+              activeThumbColor: AppColors.primary,
               onChanged: (v) => setState(() {
                 _restrictProducts = v;
                 if (!v) _selectedProductIds.clear();
@@ -648,7 +649,7 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
                     Text('${_selectedProductIds.length} of ${products.length} selected',
                         style: TextStyle(
                             fontSize: 12,
-                            color: _selectedProductIds.isEmpty ? Colors.red : const Color(0xFF2E7D32),
+                            color: _selectedProductIds.isEmpty ? Colors.red : AppColors.primary,
                             fontWeight: FontWeight.w500)),
                     const Spacer(),
                     TextButton(
@@ -680,7 +681,7 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
                         return CheckboxListTile(
                           dense: true,
                           value: selected,
-                          activeColor: const Color(0xFF2E7D32),
+                          activeColor: AppColors.primary,
                           controlAffinity: ListTileControlAffinity.leading,
                           title: Text(p.name,
                               style: const TextStyle(fontSize: 13)),
@@ -690,10 +691,10 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
                               ? Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
-                                      color: const Color(0xFFE8F5E9),
+                                      color: const Color(0xFFEAF2EA),
                                       borderRadius: BorderRadius.circular(6)),
                                   child: Text(p.categoryName!,
-                                      style: const TextStyle(fontSize: 10, color: Color(0xFF2E7D32))),
+                                      style: const TextStyle(fontSize: 10, color: AppColors.primary)),
                                 )
                               : null,
                           onChanged: (v) => setState(() {
@@ -746,7 +747,7 @@ class _ApprovalSheetState extends ConsumerState<_ApprovalSheet> {
                 });
               },
               style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white),
             ),
           ),
@@ -945,7 +946,7 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Rules updated ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {
@@ -981,14 +982,14 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
+                color: const Color(0xFFEAF2EA),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(pincode,
                   style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: Color(0xFF2E7D32),
+                      color: AppColors.primary,
                       letterSpacing: 1.5)),
             ),
             if (distKm != null) ...[
@@ -1013,7 +1014,7 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
               IconButton(
                 icon: const Icon(Icons.edit_outlined, size: 20),
                 tooltip: 'Edit rules',
-                color: const Color(0xFF2E7D32),
+                color: AppColors.primary,
                 onPressed: _edit,
               ),
               IconButton(
@@ -1063,7 +1064,7 @@ class _PincodeTileState extends ConsumerState<_PincodeTile> {
                   '${allowedIds.length} product${allowedIds.length == 1 ? '' : 's'} only',
                   Colors.orange),
             if (minOrder == null && charge == null && allowedIds == null)
-              _Chip(Icons.check_circle_outline, 'Standard rules', const Color(0xFF2E7D32)),
+              _Chip(Icons.check_circle_outline, 'Standard rules', AppColors.primary),
           ]),
 
           if (requester != null) ...[
@@ -1179,7 +1180,7 @@ class _EditPincodeSheetState extends ConsumerState<_EditPincodeSheet> {
             ])),
             Switch(
               value: _restrictProducts,
-              activeThumbColor: const Color(0xFF2E7D32),
+              activeThumbColor: AppColors.primary,
               onChanged: (v) => setState(() {
                 _restrictProducts = v;
                 if (!v) _selectedIds.clear();
@@ -1198,7 +1199,7 @@ class _EditPincodeSheetState extends ConsumerState<_EditPincodeSheet> {
                   Text('${_selectedIds.length}/${products.length} selected',
                       style: TextStyle(
                           fontSize: 12,
-                          color: _selectedIds.isEmpty ? Colors.red : const Color(0xFF2E7D32),
+                          color: _selectedIds.isEmpty ? Colors.red : AppColors.primary,
                           fontWeight: FontWeight.w500)),
                   const Spacer(),
                   TextButton(
@@ -1226,7 +1227,7 @@ class _EditPincodeSheetState extends ConsumerState<_EditPincodeSheet> {
                       return CheckboxListTile(
                         dense: true,
                         value: _selectedIds.contains(p.id),
-                        activeColor: const Color(0xFF2E7D32),
+                        activeColor: AppColors.primary,
                         controlAffinity: ListTileControlAffinity.leading,
                         title: Text(p.name, style: const TextStyle(fontSize: 13)),
                         subtitle: Text('₹${p.pricePerUnit}/${p.unit}',
@@ -1370,7 +1371,7 @@ class _DeliveryTiersSheetState extends ConsumerState<_DeliveryTiersSheet> {
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
               child: const Text('Save'),
             ),
           ],
@@ -1408,7 +1409,7 @@ class _DeliveryTiersSheetState extends ConsumerState<_DeliveryTiersSheet> {
       _loadRules();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Tier saved ✅'), backgroundColor: Color(0xFF2E7D32),
+          content: Text('Tier saved ✅'), backgroundColor: AppColors.primary,
         ));
       }
     } catch (e) {
@@ -1489,7 +1490,7 @@ class _DeliveryTiersSheetState extends ConsumerState<_DeliveryTiersSheet> {
                       style: TextStyle(fontSize: 12, color: blocked ? Colors.red : Colors.grey),
                     ),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      IconButton(icon: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFF2E7D32)),
+                      IconButton(icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.primary),
                           onPressed: () => _showAddEditDialog(r)),
                       IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
                           onPressed: () => _delete(r['id'] as int)),
@@ -1592,10 +1593,10 @@ class _PincodeAddressesSheetState extends ConsumerState<_PincodeAddressesSheet> 
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                           leading: CircleAvatar(
-                            backgroundColor: const Color(0xFFE8F5E9),
+                            backgroundColor: const Color(0xFFEAF2EA),
                             child: Text(
                               (a['customer_name'] as String? ?? 'C')[0].toUpperCase(),
-                              style: const TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold),
+                              style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
                             ),
                           ),
                           title: Text(a['customer_name'] as String? ?? '',
@@ -1614,7 +1615,7 @@ class _PincodeAddressesSheetState extends ConsumerState<_PincodeAddressesSheet> 
                               wallet >= 0 ? '₹${wallet.toStringAsFixed(0)}' : '-₹${wallet.abs().toStringAsFixed(0)}',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 13,
-                                color: wallet < 0 ? Colors.red : const Color(0xFF2E7D32),
+                                color: wallet < 0 ? Colors.red : AppColors.primary,
                               ),
                             ),
                             Text('wallet', style: const TextStyle(fontSize: 9, color: Colors.grey)),

@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -94,7 +95,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Live Salesman Locations'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -158,7 +159,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
                 } catch (_) { return false; }
               }();
               final color = hasActive
-                  ? const Color(0xFF2E7D32)
+                  ? AppColors.primary
                   : isOnline
                       ? Colors.orange.shade700
                       : Colors.grey.shade500;
@@ -221,7 +222,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
               child: FloatingActionButton.small(
                 heroTag: 'fit',
                 backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF2E7D32),
+                foregroundColor: AppColors.primary,
                 onPressed: () => _fitAgents(located),
                 child: const Icon(Icons.fit_screen),
               ),
@@ -292,12 +293,12 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                   decoration: BoxDecoration(
                                     color: hasActive
-                                        ? const Color(0xFFE8F5E9)
+                                        ? const Color(0xFFEAF2EA)
                                         : Colors.grey.shade100,
                                     borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
                                       color: hasActive
-                                          ? const Color(0xFF2E7D32)
+                                          ? AppColors.primary
                                           : Colors.grey.shade300,
                                     ),
                                   ),
@@ -315,7 +316,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
                                         style: TextStyle(
                                           fontSize: 11,
                                           color: hasActive
-                                              ? const Color(0xFF2E7D32)
+                                              ? AppColors.primary
                                               : Colors.grey,
                                         ),
                                       ),
@@ -362,11 +363,11 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             CircleAvatar(
-              backgroundColor: const Color(0xFFE8F5E9),
+              backgroundColor: const Color(0xFFEAF2EA),
               child: Text(
                 (agent['name'] as String).substring(0, 1).toUpperCase(),
                 style: const TextStyle(
-                    color: Color(0xFF2E7D32), fontWeight: FontWeight.bold),
+                    color: AppColors.primary, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(width: 12),
@@ -381,7 +382,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: (agent['active_deliveries'] as int? ?? 0) > 0
-                    ? const Color(0xFFE8F5E9)
+                    ? const Color(0xFFEAF2EA)
                     : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -393,7 +394,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: (agent['active_deliveries'] as int? ?? 0) > 0
-                      ? const Color(0xFF2E7D32)
+                      ? AppColors.primary
                       : Colors.grey,
                 ),
               ),

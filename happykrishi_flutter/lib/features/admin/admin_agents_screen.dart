@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -114,11 +115,44 @@ class AdminAgentsScreen extends ConsumerWidget {
                           // Toggle active switch
                           Switch(
                             value: isActive,
-                            activeTrackColor: const Color(0xFF2E7D32),
+                            activeTrackColor: AppColors.primary,
                             onChanged: (_) async {
                               final dio = ref.read(dioProvider);
                               await dio.put(Endpoints.adminAgentToggle(id));
                               ref.invalidate(agentsProvider);
+                            },
+                          ),
+                          // Force logout
+                          IconButton(
+                            icon: const Icon(Icons.logout, size: 18),
+                            tooltip: 'Force Logout',
+                            color: Colors.red.shade400,
+                            onPressed: () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Force Logout?'),
+                                  content: Text('This will immediately log out ${a['name']}. They will need to log in again.'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                      child: const Text('Force Logout'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirmed != true) return;
+                              try {
+                                await ref.read(dioProvider).post(Endpoints.adminAgentForceLogout(id));
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                    content: Text('${a['name']} logged out'),
+                                    backgroundColor: Colors.orange,
+                                  ));
+                                }
+                              } catch (_) {}
                             },
                           ),
                         ]),
@@ -198,7 +232,7 @@ class AdminAgentsScreen extends ConsumerWidget {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                       content: Text('Delivery agent added ✅'),
-                      backgroundColor: Color(0xFF2E7D32),
+                      backgroundColor: AppColors.primary,
                     ));
                   }
                 } on DioException catch (e) {

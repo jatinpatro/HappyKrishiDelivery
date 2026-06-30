@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -113,10 +114,10 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
   }
 
   static const _walletOptions = [
-    (key: '',         label: 'All',       color: Color(0xFF2E7D32)),
+    (key: '',         label: 'All',       color: AppColors.primary),
     (key: 'negative', label: '🔴 Negative', color: Color(0xFFC62828)),
     (key: 'zero',     label: '⚪ Zero',    color: Color(0xFF757575)),
-    (key: 'positive', label: '🟢 Positive', color: Color(0xFF2E7D32)),
+    (key: 'positive', label: '🟢 Positive', color: AppColors.primary),
     (key: 'low',      label: '🟡 Low',     color: Color(0xFFE65100)),
   ];
 
@@ -143,12 +144,12 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
+                color: const Color(0xFFEAF2EA),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text('$_total',
                   style: const TextStyle(
-                      color: Color(0xFF2E7D32), fontSize: 12, fontWeight: FontWeight.bold)),
+                      color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ],
         ]),
@@ -260,7 +261,7 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
                         ? 'Inactive'
                         : 'All',
                 selected: _activeFilter.isNotEmpty,
-                color: _activeFilter == '0' ? Colors.red : const Color(0xFF2E7D32),
+                color: _activeFilter == '0' ? Colors.red : AppColors.primary,
                 onTap: () {
                   setState(() {
                     if (_activeFilter == '') { _activeFilter = '1'; }
@@ -341,7 +342,7 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.person_add_outlined),
         label: const Text('Add Customer'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
         onPressed: () => showModalBottomSheet(
           context: context,
           isScrollControlled: true,
@@ -464,7 +465,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
       );
       widget.onChanged();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Customer updated'), backgroundColor: Color(0xFF2E7D32)));
+        const SnackBar(content: Text('Customer updated'), backgroundColor: AppColors.primary));
     } on DioException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.response?.data['error'] ?? 'Failed to update')));
@@ -505,7 +506,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Give Credit'),
           ),
         ],
@@ -527,7 +528,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('₹${amount.toStringAsFixed(0)} credit advance given to $name'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } catch (e, st) {
@@ -585,7 +586,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-                backgroundColor: isActive ? Colors.red : const Color(0xFF2E7D32)),
+                backgroundColor: isActive ? Colors.red : AppColors.primary),
             child: Text(isActive ? 'Deactivate' : 'Activate'),
           ),
         ],
@@ -681,7 +682,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
                       );
                       widget.onChanged();
                       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Tier updated'), backgroundColor: Color(0xFF2E7D32)));
+                        const SnackBar(content: Text('Tier updated'), backgroundColor: AppColors.primary));
                     } on DioException catch (e) {
                       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text(e.response?.data['error'] ?? 'Failed to set tier')));
@@ -754,7 +755,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
                         if (dialogCtx.mounted) Navigator.pop(dialogCtx);
                         messenger.showSnackBar(SnackBar(
                           content: Text('Password reset for $name ✅'),
-                          backgroundColor: const Color(0xFF2E7D32),
+                          backgroundColor: AppColors.primary,
                         ));
                       } on DioException catch (e) {
                         messenger.showSnackBar(SnackBar(
@@ -811,14 +812,14 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
           CircleAvatar(
             radius: 22,
             backgroundColor:
-                isActive ? const Color(0xFFE8F5E9) : Colors.grey.shade100,
+                isActive ? const Color(0xFFEAF2EA) : Colors.grey.shade100,
             child: Text(
               name.isNotEmpty ? name[0].toUpperCase() : 'U',
               style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
                   color: isActive
-                      ? const Color(0xFF2E7D32)
+                      ? AppColors.primary
                       : Colors.grey),
             ),
           ),
@@ -885,13 +886,13 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
               const SizedBox(height: 4),
               Row(children: [
                 const Icon(Icons.account_balance_wallet_outlined,
-                    size: 13, color: Color(0xFF2E7D32)),
+                    size: 13, color: AppColors.primary),
                 const SizedBox(width: 4),
                 Text('₹${balance.toStringAsFixed(0)}',
                     style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF2E7D32))),
+                        color: AppColors.primary)),
                 const SizedBox(width: 12),
                 const Icon(Icons.calendar_today_outlined,
                     size: 12, color: Colors.grey),
@@ -960,7 +961,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
             // Edit name/email/phone
             IconButton(
               icon: const Icon(Icons.edit_outlined,
-                  color: Color(0xFF2E7D32), size: 20),
+                  color: AppColors.primary, size: 20),
               tooltip: 'Edit Customer',
               onPressed: _editCustomer,
             ),
@@ -981,7 +982,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
             // Credit advance
             IconButton(
               icon: const Icon(Icons.add_card_outlined,
-                  color: Color(0xFF2E7D32), size: 20),
+                  color: AppColors.primary, size: 20),
               tooltip: 'Credit Advance',
               onPressed: _creditTopup,
             ),
@@ -1002,7 +1003,7 @@ class _CustomerCardState extends ConsumerState<_CustomerCard> {
                       isActive
                           ? Icons.person_off_outlined
                           : Icons.person_outlined,
-                      color: isActive ? Colors.red : const Color(0xFF2E7D32),
+                      color: isActive ? Colors.red : AppColors.primary,
                       size: 20,
                     ),
                     tooltip: isActive ? 'Deactivate' : 'Activate',
@@ -1067,7 +1068,7 @@ class _AddCustomerSheetState extends ConsumerState<_AddCustomerSheet> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Customer added ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -1240,7 +1241,7 @@ class _WalletHistorySheetState extends ConsumerState<_WalletHistorySheet> {
     if (type == 'debit') return Colors.red.shade600;
     if (type == 'discount' && ref == 'reward') return const Color(0xFF6A1B9A);
     if (type == 'adjustment') return Colors.orange;
-    return const Color(0xFF2E7D32);
+    return AppColors.primary;
   }
 
   IconData _txnIcon(Map<String, dynamic> t) {
@@ -1275,7 +1276,7 @@ class _WalletHistorySheetState extends ConsumerState<_WalletHistorySheet> {
                 Text('Balance: ₹${balance.toStringAsFixed(2)}',
                     style: TextStyle(
                         fontSize: 13,
-                        color: balance < 0 ? Colors.red : const Color(0xFF2E7D32),
+                        color: balance < 0 ? Colors.red : AppColors.primary,
                         fontWeight: FontWeight.w600)),
             ])),
             IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),

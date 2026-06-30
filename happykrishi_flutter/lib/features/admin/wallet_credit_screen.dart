@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -97,7 +98,7 @@ class _CreditTabState extends ConsumerState<_CreditTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('₹${_amountCtrl.text} credited to ${_selectedUser!['name']} ✅'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
         ref.invalidate(usersProvider(_search));
         setState(() { _selectedUser = null; _amountCtrl.clear(); _descCtrl.clear(); });
@@ -127,10 +128,10 @@ class _CreditTabState extends ConsumerState<_CreditTab> {
           : Column(children: [
               const Divider(),
               Row(children: [
-                const Icon(Icons.add_circle, color: Color(0xFF2E7D32)),
+                const Icon(Icons.add_circle, color: AppColors.primary),
                 const SizedBox(width: 8),
                 Text('Credit: ${_selectedUser!['name']}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
               ]),
               const SizedBox(height: 8),
               TextField(controller: _amountCtrl, keyboardType: TextInputType.number,
@@ -346,8 +347,8 @@ class _WalletActionLayout extends StatelessWidget {
                                 style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
                             subtitle: Text('${u['phone']} • ₹${u['wallet_balance']}'),
                             selected: isSelected,
-                            selectedColor: const Color(0xFF2E7D32),
-                            selectedTileColor: const Color(0xFFE8F5E9),
+                            selectedColor: AppColors.primary,
+                            selectedTileColor: const Color(0xFFEAF2EA),
                             onTap: () => onUserSelected(u),
                             trailing: IconButton(
                               icon: const Icon(Icons.lock_reset, color: Colors.orange, size: 18),
@@ -402,7 +403,7 @@ Future<void> _showResetPasswordDialog(
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text('Password reset for $name ✅'),
-                    backgroundColor: const Color(0xFF2E7D32)));
+                    backgroundColor: AppColors.primary));
               }
             } on DioException catch (e) {
               if (context.mounted) {

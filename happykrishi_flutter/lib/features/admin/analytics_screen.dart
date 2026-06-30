@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,8 +33,8 @@ final customerActivityProvider = FutureProvider.family.autoDispose<Map<String, d
   return res.data as Map<String, dynamic>;
 });
 
-const _kGreen  = Color(0xFF2E7D32);
-const _kGreenL = Color(0xFFE8F5E9);
+const _kGreen  = AppColors.primary;
+const _kGreenL = Color(0xFFEAF2EA);
 
 class AdminAnalyticsScreen extends ConsumerStatefulWidget {
   const AdminAnalyticsScreen({super.key});
@@ -70,7 +71,7 @@ class _AdminAnalyticsScreenState extends ConsumerState<AdminAnalyticsScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Analytics', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
@@ -429,7 +430,7 @@ class _StatusDonut extends StatelessWidget {
   const _StatusDonut({required this.statuses});
 
   static const _colors = {
-    'delivered': Color(0xFF2E7D32),
+    'delivered': AppColors.primary,
     'pending': Color(0xFFFF9800),
     'confirmed': Color(0xFF1976D2),
     'dispatched': Color(0xFF7B1FA2),

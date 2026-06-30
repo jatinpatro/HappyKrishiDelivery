@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -47,7 +48,7 @@ const _statusMeta = {
   'confirmed':  ('Confirmed',  Color(0xFF0277BD), Icons.check_circle_outline),
   'assigned':   ('Assigned',   Color(0xFF6A1B9A), Icons.person_pin),
   'dispatched': ('Dispatched', Color(0xFF00838F), Icons.local_shipping),
-  'delivered':  ('Delivered',  Color(0xFF2E7D32), Icons.done_all),
+  'delivered':  ('Delivered',  AppColors.primary, Icons.done_all),
   'cancelled':  ('Cancelled',  Color(0xFFC62828), Icons.cancel_outlined),
 };
 
@@ -137,7 +138,7 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
         : _allOrders.where((o) => matchesAllFilters(o, localFilters)).toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Orders'),
         elevation: 0,
@@ -174,8 +175,9 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
         },
         icon: const Icon(Icons.add_shopping_cart),
         label: const Text('Place Order'),
-        backgroundColor: const Color(0xFF2E7D32),
+        backgroundColor: AppColors.primary,
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Column(children: [
         // ── Filter header ─────────────────────────────────────────────────────
         Container(
@@ -195,11 +197,11 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
                   margin: const EdgeInsets.only(left: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E9),
+                      color: const Color(0xFFEAF2EA),
                       borderRadius: BorderRadius.circular(12)),
                   child: Text('$_total',
                       style: const TextStyle(
-                          color: Color(0xFF2E7D32), fontSize: 12, fontWeight: FontWeight.bold)),
+                          color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
             ]),
             const SizedBox(height: 8),
@@ -240,7 +242,7 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
                   : RefreshIndicator(
                       onRefresh: () => _load(reset: true),
                       child: ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
                         itemCount: filtered.length + 1,
                         itemBuilder: (_, i) {
                           if (i < filtered.length) {
@@ -285,7 +287,7 @@ class _TypeBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSelected = selected == value;
-    const color = Color(0xFF2E7D32);
+    const color = AppColors.primary;
     return GestureDetector(
       onTap: () => onTap(value),
       child: AnimatedContainer(
@@ -867,7 +869,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text('Message sent to $customer ✅'),
-                    backgroundColor: const Color(0xFF2E7D32),
+                    backgroundColor: AppColors.primary,
                   ));
                 }
               } catch (e, st) {
@@ -949,7 +951,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
         data: {'reason': reasonCtrl.text.trim()},
       );
       widget.onRefresh();
-      if (mounted) _snack('Order cancelled. Refund sent to wallet.', color: const Color(0xFF2E7D32));
+      if (mounted) _snack('Order cancelled. Refund sent to wallet.', color: AppColors.primary);
     } catch (e, st) {
       logError('admin-orders', e, st);
       if (mounted) _snack(friendlyError(e));
@@ -968,7 +970,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             child: const Text('Yes, Collected'),
           ),
         ],
@@ -979,7 +981,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
     try {
       await ref.read(dioProvider).post(Endpoints.adminMarkCollected(widget.order['id'] as int));
       widget.onRefresh();
-      if (mounted) _snack('Pickup marked as collected ✅', color: const Color(0xFF2E7D32));
+      if (mounted) _snack('Pickup marked as collected ✅', color: AppColors.primary);
     } catch (e, st) {
       logError('admin-orders', e, st);
       if (mounted) _snack(friendlyError(e));
@@ -1006,7 +1008,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
               enabled: active,
               leading: CircleAvatar(
                 radius: 16,
-                backgroundColor: active ? const Color(0xFF2E7D32) : Colors.grey.shade400,
+                backgroundColor: active ? AppColors.primary : Colors.grey.shade400,
                 child: Text((s['name'] as String).substring(0, 1).toUpperCase(),
                     style: const TextStyle(color: Colors.white, fontSize: 12)),
               ),
@@ -1137,7 +1139,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
 
       case 'assigned':
         if (isPickup) {
-          primary.add(_btn('Mark Collected', Icons.store_outlined, const Color(0xFF2E7D32), _markCollected));
+          primary.add(_btn('Mark Collected', Icons.store_outlined, AppColors.primary, _markCollected));
         } else {
           primary.add(_btn('Mark Dispatched', Icons.local_shipping_outlined, Colors.blue,
               () => _updateStatus('dispatched')));
@@ -1145,7 +1147,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
         secondary.add(_outlineBtn('Cancel', Icons.close, Colors.red, _cancelWithReason));
 
       case 'dispatched':
-        primary.add(_btn('Mark Delivered', Icons.done_all, const Color(0xFF2E7D32),
+        primary.add(_btn('Mark Delivered', Icons.done_all, AppColors.primary,
             () => _updateStatus('delivered')));
         secondary.add(_outlineBtn('Cancel', Icons.close, Colors.red, _cancelWithReason));
     }
@@ -1173,7 +1175,7 @@ class _ActionButtonsState extends ConsumerState<_ActionButtons> {
           label: const Text('Track'),
           onPressed: () => context.push('/admin/track/${widget.order['id']}'),
           style: TextButton.styleFrom(
-            foregroundColor: const Color(0xFF2E7D32),
+            foregroundColor: AppColors.primary,
             minimumSize: Size.zero,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,

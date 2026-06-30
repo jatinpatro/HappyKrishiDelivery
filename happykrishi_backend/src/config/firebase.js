@@ -1,5 +1,7 @@
 let admin;
 
+const STORAGE_BUCKET = 'happykrishidelivery.firebasestorage.app';
+
 function getFirebaseAdmin() {
   if (admin) return admin;
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -9,9 +11,12 @@ function getFirebaseAdmin() {
   }
   const firebaseAdmin = require('firebase-admin');
   const serviceAccount = JSON.parse(serviceAccountJson);
-  firebaseAdmin.initializeApp({ credential: firebaseAdmin.credential.cert(serviceAccount) });
+  firebaseAdmin.initializeApp({
+    credential: firebaseAdmin.credential.cert(serviceAccount),
+    storageBucket: STORAGE_BUCKET,
+  });
   admin = firebaseAdmin;
   return admin;
 }
 
-module.exports = { getFirebaseAdmin };
+module.exports = { getFirebaseAdmin, STORAGE_BUCKET };

@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -119,7 +120,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       helpText: 'Filter by date',
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(primary: Color(0xFF2E7D32)),
+          colorScheme: const ColorScheme.light(primary: AppColors.primary),
         ),
         child: child!,
       ),
@@ -155,19 +156,19 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
                 color: _filter != null
-                    ? (activeFilter?.color ?? const Color(0xFF2E7D32)).withValues(alpha: 0.1)
+                    ? (activeFilter?.color ?? AppColors.primary).withValues(alpha: 0.1)
                     : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: _filter != null
-                      ? (activeFilter?.color ?? const Color(0xFF2E7D32))
+                      ? (activeFilter?.color ?? AppColors.primary)
                       : Colors.grey.shade300,
                 ),
               ),
               child: Row(children: [
                 Icon(Icons.filter_list_rounded, size: 16,
                     color: _filter != null
-                        ? (activeFilter?.color ?? const Color(0xFF2E7D32))
+                        ? (activeFilter?.color ?? AppColors.primary)
                         : Colors.grey.shade600),
                 const SizedBox(width: 6),
                 Expanded(
@@ -177,7 +178,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       fontSize: 13,
                       fontWeight: _filter != null ? FontWeight.w600 : FontWeight.normal,
                       color: _filter != null
-                          ? (activeFilter?.color ?? const Color(0xFF2E7D32))
+                          ? (activeFilter?.color ?? AppColors.primary)
                           : Colors.grey.shade700,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -185,7 +186,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 ),
                 Icon(Icons.keyboard_arrow_down, size: 16,
                     color: _filter != null
-                        ? (activeFilter?.color ?? const Color(0xFF2E7D32))
+                        ? (activeFilter?.color ?? AppColors.primary)
                         : Colors.grey.shade400),
               ]),
             ),
@@ -202,16 +203,16 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
                 color: _hasDateFilter
-                    ? const Color(0xFF2E7D32).withValues(alpha: 0.1)
+                    ? AppColors.primary.withValues(alpha: 0.1)
                     : Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: _hasDateFilter ? const Color(0xFF2E7D32) : Colors.grey.shade300,
+                  color: _hasDateFilter ? AppColors.primary : Colors.grey.shade300,
                 ),
               ),
               child: Row(children: [
                 Icon(Icons.calendar_month_outlined, size: 16,
-                    color: _hasDateFilter ? const Color(0xFF2E7D32) : Colors.grey.shade600),
+                    color: _hasDateFilter ? AppColors.primary : Colors.grey.shade600),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -221,7 +222,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: _hasDateFilter ? FontWeight.w600 : FontWeight.normal,
-                      color: _hasDateFilter ? const Color(0xFF2E7D32) : Colors.grey.shade700,
+                      color: _hasDateFilter ? AppColors.primary : Colors.grey.shade700,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -287,13 +288,13 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     leading: CircleAvatar(
                       radius: 16,
                       backgroundColor: _filter == null
-                          ? const Color(0xFF2E7D32) : Colors.grey.shade100,
+                          ? AppColors.primary : Colors.grey.shade100,
                       child: Icon(Icons.all_inclusive, size: 16,
                           color: _filter == null ? Colors.white : Colors.grey),
                     ),
                     title: const Text('All Types'),
                     trailing: _filter == null
-                        ? const Icon(Icons.check, color: Color(0xFF2E7D32)) : null,
+                        ? const Icon(Icons.check, color: AppColors.primary) : null,
                     onTap: () {
                       setState(() => _filter = null);
                       _resetTxns();
@@ -545,7 +546,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddMoneySheet(context),
-        backgroundColor: isNeg ? Colors.red.shade700 : const Color(0xFF2E7D32),
+        backgroundColor: isNeg ? Colors.red.shade700 : AppColors.primary,
         icon: Icon(isNeg ? Icons.warning_amber_rounded : Icons.add),
         label: Text(isNeg ? 'Top Up Now' : 'Add Money'),
       ),
@@ -616,7 +617,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
           ),
           const Divider(height: 1),
           ListTile(
-            leading: const Icon(Icons.account_balance_wallet, color: Color(0xFF2E7D32)),
+            leading: const Icon(Icons.account_balance_wallet, color: AppColors.primary),
             title: const Text('Wallet Statement'),
             onTap: () {
               Navigator.pop(context);
@@ -654,7 +655,7 @@ class _BalanceHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = isNegative
         ? [const Color(0xFFB71C1C), const Color(0xFFE53935)]
-        : [const Color(0xFF1B5E20), const Color(0xFF388E3C), const Color(0xFF66BB6A)];
+        : [AppColors.primaryDark, const Color(0xFF388E3C), const Color(0xFF66BB6A)];
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
@@ -766,11 +767,11 @@ class _HeroBtn extends StatelessWidget {
       ),
       child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
         Icon(icon, size: 16,
-            color: primary ? const Color(0xFF2E7D32) : Colors.white),
+            color: primary ? AppColors.primary : Colors.white),
         const SizedBox(width: 6),
         Text(label,
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                color: primary ? const Color(0xFF2E7D32) : Colors.white)),
+                color: primary ? AppColors.primary : Colors.white)),
       ]),
     ),
   );
@@ -842,7 +843,7 @@ class _TxnCard extends StatelessWidget {
     if (type == 'refund' && ref == 'order') { return (color: const Color(0xFF00695C), icon: Icons.undo, label: 'Order Refund'); }
     if (type == 'adjustment') { return (color: const Color(0xFFE65100), icon: Icons.scale, label: 'Weight Adjustment'); }
     if (type == 'debit' && ref == 'system') { return (color: const Color(0xFF424242), icon: Icons.lock_outline, label: 'Service Fee'); }
-    if (['credit', 'discount'].contains(type)) { return (color: const Color(0xFF2E7D32), icon: Icons.add_circle_outline, label: 'Credit'); }
+    if (['credit', 'discount'].contains(type)) { return (color: AppColors.primary, icon: Icons.add_circle_outline, label: 'Credit'); }
     return (color: const Color(0xFFC62828), icon: Icons.remove_circle_outline, label: 'Debit');
   }
 
@@ -900,7 +901,7 @@ class _TxnCard extends StatelessWidget {
           Text(amountStr,
               style: TextStyle(
                 fontWeight: FontWeight.bold, fontSize: 15,
-                color: isCredit ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                color: isCredit ? AppColors.primary : const Color(0xFFC62828),
               )),
           const SizedBox(height: 2),
           Text('Bal ₹${txn.balanceAfter.toStringAsFixed(2)}',
@@ -1055,7 +1056,7 @@ class _TopupRequestsSectionState extends State<_TopupRequestsSection> {
           final status = r['status'] as String;
           final amount = (r['amount'] as num).toDouble();
           final method = r['payment_method'] as String? ?? 'cash';
-          final statusColor = status == 'approved' ? const Color(0xFF2E7D32)
+          final statusColor = status == 'approved' ? AppColors.primary
               : status == 'rejected' ? Colors.red : Colors.orange;
           final statusIcon  = status == 'approved' ? Icons.check_circle
               : status == 'rejected' ? Icons.cancel_outlined : Icons.hourglass_top;
@@ -1083,7 +1084,7 @@ class _TopupRequestsSectionState extends State<_TopupRequestsSection> {
               ])),
               const SizedBox(width: 8),
               Text('₹${amount.toStringAsFixed(0)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF2E7D32))),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primary)),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),

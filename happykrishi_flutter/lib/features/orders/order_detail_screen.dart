@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -188,7 +189,7 @@ class OrderDetailScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${cartItems.length} item(s) added to cart'),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
           action: SnackBarAction(label: 'View Cart', onPressed: () => context.go('/cart')),
         ));
       }
@@ -272,7 +273,7 @@ class _CancelButtonState extends ConsumerState<_CancelButton> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Order cancelled. Refund added to wallet.'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -384,7 +385,7 @@ class _StaffCancelButtonState extends ConsumerState<_StaffCancelButton> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Order cancelled. Refund added to wallet.'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
       }
     } on DioException catch (e) {
@@ -616,7 +617,7 @@ class _OrderItemsList extends ConsumerWidget {
                   style: const TextStyle(fontSize: 11, color: Colors.grey,
                       decoration: TextDecoration.lineThrough)),
               Text('₹${amt(discountedLine)}',
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
+                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primary)),
               Text('-₹${amt(itemDiscount)}',
                   style: const TextStyle(fontSize: 10, color: Colors.green)),
             ] else ...[
@@ -631,7 +632,7 @@ class _OrderItemsList extends ConsumerWidget {
           if (canEdit)
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 18),
-              color: const Color(0xFF2E7D32),
+              color: AppColors.primary,
               tooltip: 'Update actual quantity',
               padding: const EdgeInsets.only(left: 8),
               constraints: const BoxConstraints(),
@@ -728,7 +729,7 @@ class _OrderItemsList extends ConsumerWidget {
         }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(msg),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
           duration: const Duration(seconds: 5),
         ));
       }
@@ -805,7 +806,7 @@ class _SalesmanItemsEditorState extends ConsumerState<_SalesmanItemsEditor> {
         }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(msg),
-          backgroundColor: const Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
           duration: const Duration(seconds: 5),
         ));
       }
@@ -857,7 +858,7 @@ class _SalesmanItemsEditorState extends ConsumerState<_SalesmanItemsEditor> {
             TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, codeCtrl.text.trim()),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
               child: const Text('Confirm Delivery'),
             ),
           ],
@@ -881,7 +882,7 @@ class _SalesmanItemsEditorState extends ConsumerState<_SalesmanItemsEditor> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Marked as delivered ✅'),
-          backgroundColor: Color(0xFF2E7D32),
+          backgroundColor: AppColors.primary,
         ));
         context.go('/salesman');
       }
@@ -1016,7 +1017,7 @@ class _SalesmanItemsEditorState extends ConsumerState<_SalesmanItemsEditor> {
           label: Text(isPickup ? '✅ Mark as Collected' : '✅ Mark as Delivered'),
           onPressed: _savingWeights || _marking ? null : _markDelivered,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF2E7D32),
+            backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 13),
           ),
@@ -1061,7 +1062,7 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = bold ? const TextStyle(fontWeight: FontWeight.bold, fontSize: 16) : null;
-    final vStyle = style?.copyWith(color: valueColor ?? const Color(0xFF2E7D32))
+    final vStyle = style?.copyWith(color: valueColor ?? AppColors.primary)
         ?? (valueColor != null ? TextStyle(color: valueColor) : null);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1135,7 +1136,7 @@ class _DeliveryCodeCardState extends ConsumerState<_DeliveryCodeCard> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
             child: const Text('Yes, I received it'),
           ),
         ],
@@ -1159,21 +1160,21 @@ class _DeliveryCodeCardState extends ConsumerState<_DeliveryCodeCard> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: confirmed ? Colors.green.shade50 : const Color(0xFFE8F5E9),
+        color: confirmed ? Colors.green.shade50 : const Color(0xFFEAF2EA),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: confirmed ? Colors.green.shade400 : const Color(0xFF2E7D32).withValues(alpha: 0.5),
+          color: confirmed ? Colors.green.shade400 : AppColors.primary.withValues(alpha: 0.5),
           width: 1.5,
         ),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Icon(confirmed ? Icons.verified_outlined : Icons.lock_outline,
-              color: const Color(0xFF2E7D32), size: 16),
+              color: AppColors.primary, size: 16),
           const SizedBox(width: 8),
           Text(
             confirmed ? 'Delivery Confirmed' : 'Your Delivery Code',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B5E20)),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.primaryDark),
           ),
         ]),
         const SizedBox(height: 10),
@@ -1181,19 +1182,19 @@ class _DeliveryCodeCardState extends ConsumerState<_DeliveryCodeCard> {
           Text(
             widget.code,
             style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold,
-                letterSpacing: 6, color: Color(0xFF2E7D32)),
+                letterSpacing: 6, color: AppColors.primary),
           ),
           const Spacer(),
           if (!confirmed && !widget.isAdmin) ...[
             if (_confirming)
-              const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2E7D32)))
+              const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
             else
               ElevatedButton.icon(
                 icon: const Icon(Icons.check_circle_outline, size: 16),
                 label: const Text('I Received It'),
                 onPressed: _confirmDelivery,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
+                  backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   textStyle: const TextStyle(fontSize: 12),

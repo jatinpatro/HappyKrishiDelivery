@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/utils/error_handler.dart';
+import '../../core/utils/firebase_upload.dart';
 
 final configProvider = FutureProvider.autoDispose<Map<String, String>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -225,26 +227,39 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
     setState(() => _uploadingQr = true);
     try {
       final bytes = await picked.readAsBytes();
+      final ext = picked.name.split('.').last.toLowerCase();
+      final filename = 'config/upi_qr.$ext';
       final dio = ref.read(dioProvider);
-      final formData = FormData.fromMap({
-        'qr_image': MultipartFile.fromBytes(
-          bytes,
-          filename: picked.name,
-        ),
-      });
-      final res = await dio.post(Endpoints.adminUploadQr, data: formData);
-      final url = res.data['url'] as String;
-      setState(() => _qrPreviewUrl = url);
+
+      // Use signed URL — works on web and mobile, no client Firebase auth needed
+      final downloadUrl = await uploadImageViaSignedUrl(
+        dio: dio,
+        bytes: bytes,
+        filename: filename,
+        contentType: 'image/$ext',
+      );
+
+      if (downloadUrl == null) throw Exception('Upload returned no URL');
+
+      // Save URL to backend config
+      await dio.put(Endpoints.adminConfig, data: {'config': {'upi_qr_image_url': downloadUrl}});
+      setState(() => _qrPreviewUrl = downloadUrl);
       ref.invalidate(configProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('QR code uploaded ✅'), backgroundColor: Color(0xFF2E7D32)),
+          const SnackBar(content: Text('QR code uploaded ✅'), backgroundColor: AppColors.primary),
         );
       }
     } on DioException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.response?.data['error'] ?? 'Upload failed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e')),
         );
       }
     } finally {
@@ -329,7 +344,7 @@ class _QrUploadWidget extends StatelessWidget {
           height: 120,
           decoration: BoxDecoration(
             border: Border.all(
-              color: const Color(0xFF2E7D32),
+              color: AppColors.primary,
               width: 2,
               style: BorderStyle.solid,
             ),
