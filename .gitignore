@@ -38,3 +38,9 @@ happykrishi_flutter/web/flutter_service_worker.js
 *.pem
 *.key
 .github/
+
+# Sensitive config backups
+config_backup/
+
+# Image generation scripts
+generate_images.js
