@@ -12,7 +12,7 @@ import '../../core/widgets/active_filter.dart';
 import '../../core/widgets/filter_form.dart';
 import '../../core/utils/error_handler.dart';
 
-final adminOrdersProvider = FutureProvider.family.autoDispose<Map<String, dynamic>, String>((ref, key) async {
+final adminOrdersProvider = FutureProvider.family<Map<String, dynamic>, String>((ref, key) async {
   // key = "status|orderType|filterKey|page"
   final parts     = key.split('|||');
   final mainKey   = parts[0];
@@ -85,29 +85,27 @@ class _AdminOrdersScreenState extends ConsumerState<AdminOrdersScreen> {
   bool _loading = false;
   bool _loadingMore = false;
 
-  String get _baseKey {    final status    = _statusFilter ?? '';
-    final orderType = _typeFilter   ?? '';
-    return '$status|$orderType|${_filter.toProviderKey()}';
-  }
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load(reset: true));
   }
 
-  void _onFilterChanged() {
-    _load(reset: true);
-  }
-
   Future<void> _load({bool reset = false}) async {
+    final nextPage = reset ? 1 : _page + 1;
     if (reset) {
       setState(() { _allOrders = []; _page = 1; _total = 0; _loading = true; });
     } else {
       setState(() => _loadingMore = true);
     }
     try {
-      final data = await ref.read(adminOrdersProvider('$_baseKey|||${reset ? 1 : _page + 1}').future);
+      final params = <String, dynamic>{'page': nextPage, 'limit': _limit};
+      if (_statusFilter != null && _statusFilter!.isNotEmpty) params['status'] = _statusFilter;
+      if (_typeFilter   != null && _typeFilter!.isNotEmpty)   params['order_type'] = _typeFilter;
+      final qp = _filter.toQueryParams();
+      params.addAll(qp);
+      final res  = await ref.read(dioProvider).get(Endpoints.adminOrders, queryParameters: params);
+      final data = res.data as Map<String, dynamic>;
       final orders = List<Map<String, dynamic>>.from(data['orders'] as List);
       final total  = (data['total'] as num?)?.toInt() ?? orders.length;
       setState(() {

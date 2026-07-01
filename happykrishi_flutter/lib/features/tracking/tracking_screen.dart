@@ -14,9 +14,14 @@ import '../../core/api/dio_client.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/utils/error_handler.dart';
 
-// Farm location (matches .env)
-const _farmLat = 19.0746;
-const _farmLng = 84.5027;
+// Farm location loaded at runtime from app-info
+final _farmLocationProvider = FutureProvider.autoDispose<LatLng>((ref) async {
+  final res = await ref.read(dioProvider).get(Endpoints.appInfo);
+  final farm = res.data['farm'] as Map<String, dynamic>?;
+  final lat = (farm?['lat'] as num?)?.toDouble() ?? 19.0746;
+  final lng = (farm?['lng'] as num?)?.toDouble() ?? 84.5027;
+  return LatLng(lat, lng);
+});
 
 final _trackingOrderProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, int>((ref, orderId) async {
@@ -138,6 +143,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   @override
   Widget build(BuildContext context) {
     final orderAsync = ref.watch(_trackingOrderProvider(widget.orderId));
+    final farmPoint  = ref.watch(_farmLocationProvider).value ?? const LatLng(19.0746, 84.5027);
 
     final currentUser = ref.watch(authStateProvider).user;
     final isAdmin    = currentUser?.role == 'admin' || currentUser?.role == 'subadmin';
@@ -195,8 +201,8 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
           // Map center: salesman/admin → delivery address; customer → salesman location
           final center = widget.shareLocation
-              ? (_agentLoc ?? deliveryLoc ?? const LatLng(_farmLat, _farmLng))
-              : (deliveryLoc ?? _agentLoc ?? const LatLng(_farmLat, _farmLng));
+              ? (_agentLoc ?? deliveryLoc ?? farmPoint)
+              : (deliveryLoc ?? _agentLoc ?? farmPoint);
 
           final orderNum  = order['order_number'] as String? ?? '#${widget.orderId}';
           final staffName = delivery?['agent_name'] as String?;
@@ -235,7 +241,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                 MarkerLayer(markers: [
                   // Farm / pickup origin marker
                   Marker(
-                    point: const LatLng(_farmLat, _farmLng),
+                    point: farmPoint,
                     width: 36, height: 36,
                     child: Tooltip(
                       message: 'HappyKrishi Farm',
@@ -328,7 +334,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                     ?_agentLoc,
                     ?deliveryLoc,
                     ?_customerLoc,
-                    const LatLng(_farmLat, _farmLng),
+                    farmPoint,
                   ];
                   if (points.length == 1) {
                     _mapController.move(points.first, 15);

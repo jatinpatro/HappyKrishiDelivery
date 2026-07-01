@@ -2,12 +2,15 @@ import '../../core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:dio/dio.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/utils/error_handler.dart';
 import '../../core/utils/firebase_upload.dart';
+import '../../core/widgets/location_picker_screen.dart';
 
 final configProvider = FutureProvider.autoDispose<Map<String, String>>((ref) async {
   final dio = ref.read(dioProvider);
@@ -57,6 +60,8 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
     _qrField: 'UPI QR Code Image',
     'cash_payment_address': 'Cash Payment Instructions',
     'salesmen_list': 'Cash Salesmen (comma-separated)',
+    'farm_lat': 'Store Latitude',
+    'farm_lng': 'Store Longitude',
   };
 
   @override
@@ -106,6 +111,8 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
               'farm_name', 'farm_address', 'contact_phone', 'contact_whatsapp',
               'contact_email', 'working_hours',
             ]),
+            const SizedBox(height: 16),
+            _storeLocationSection(),
             const SizedBox(height: 16),
             _defaultSalesmanSection(),
             const SizedBox(height: 16),
@@ -168,6 +175,109 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
             error: (e, _) { logError('admin-config', e); return Text(friendlyError(e),
                 style: const TextStyle(color: Colors.red, fontSize: 12)); },
           ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _storeLocationSection() {
+    final latCtrl  = _ctrls['farm_lat']  ?? TextEditingController();
+    final lngCtrl  = _ctrls['farm_lng']  ?? TextEditingController();
+    final lat = double.tryParse(latCtrl.text);
+    final lng = double.tryParse(lngCtrl.text);
+    final hasPin = lat != null && lng != null;
+    final pinPoint = hasPin ? LatLng(lat, lng) : const LatLng(20.5937, 78.9629); // India center fallback
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Row(children: [
+            Icon(Icons.store_mall_directory, color: Colors.teal, size: 18),
+            SizedBox(width: 8),
+            Text('Store / Farm Location', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          ]),
+          const Divider(height: 20),
+          const Text(
+            'This pin is shown on the live salesman map and as the origin on customer order tracking.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 14),
+
+          // Mini map preview
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              height: 160,
+              child: Stack(children: [
+                FlutterMap(
+                  options: MapOptions(
+                    initialCenter: pinPoint,
+                    initialZoom: 14,
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.none,
+                    ),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.happykrishi.delivery',
+                    ),
+                    MarkerLayer(markers: [
+                      Marker(
+                        point: pinPoint,
+                        width: 36,
+                        height: 40,
+                        child: const Column(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.location_pin, color: Colors.red, size: 36),
+                        ]),
+                      ),
+                    ]),
+                  ],
+                ),
+                // Google-maps style "Edit" button overlay
+                Positioned(
+                  bottom: 10,
+                  right: 10,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.edit_location_alt, size: 16),
+                    label: const Text('Move Pin'),
+                    onPressed: () async {
+                      final picked = await Navigator.push<LatLng>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => LocationPickerScreen(
+                            initialCenter: pinPoint,
+                            existingPin: hasPin ? pinPoint : null,
+                          ),
+                        ),
+                      );
+                      if (picked != null && mounted) {
+                        setState(() {
+                          _ctrls['farm_lat']!.text = picked.latitude.toStringAsFixed(6);
+                          _ctrls['farm_lng']!.text = picked.longitude.toStringAsFixed(6);
+                        });
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: AppColors.primary,
+                      elevation: 2,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(child: _textField('farm_lat')),
+            const SizedBox(width: 10),
+            Expanded(child: _textField('farm_lng')),
+          ]),
         ]),
       ),
     );

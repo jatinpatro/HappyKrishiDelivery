@@ -48,8 +48,73 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         return;
       }
 
-      // Call backend — routes to email if verified, otherwise email fallback
       final dio = ref.read(dioProvider);
+
+      // For phone input — check channel and warn if SMS charge applies
+      if (!_identifierIsEmail) {
+        final channelRes = await dio.get(Endpoints.otpChannel, queryParameters: {'phone': id});
+        final cost = (channelRes.data['cost'] as num?)?.toDouble() ?? 0;
+        final walletBalance = (channelRes.data['wallet_balance'] as num?)?.toDouble();
+        final needsEmailVerify = channelRes.data['needs_email_verify'] == true;
+
+        if (cost > 0 && mounted) {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('SMS OTP Charge'),
+              content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('₹${cost.toStringAsFixed(0)} will be deducted from your wallet to send OTP via SMS.',
+                    style: const TextStyle(fontSize: 14)),
+                const SizedBox(height: 8),
+                if (walletBalance != null)
+                  Text('Your wallet balance: ₹${walletBalance.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                if (needsEmailVerify) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.email_outlined, color: Colors.green.shade700, size: 16),
+                      const SizedBox(width: 8),
+                      const Expanded(child: Text('Verify your email to get free OTPs forever.',
+                          style: TextStyle(fontSize: 12, color: Colors.green))),
+                    ]),
+                  ),
+                ],
+              ]),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                if (needsEmailVerify)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx, false);
+                      setState(() => _usePassword = false);
+                      _identifierCtrl.text = '';
+                      _show('Enter your email to get free OTPs');
+                    },
+                    child: const Text('Use Email Instead'),
+                  ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+                  child: Text('Send OTP (₹${cost.toStringAsFixed(0)})'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true || !mounted) return;
+        }
+      }
+
+      // Call backend to send OTP
       final data = _identifierIsEmail ? {'email': id} : {'phone': id};
       final res = await dio.post(Endpoints.sendOtp, data: data);
       if (!mounted) return;

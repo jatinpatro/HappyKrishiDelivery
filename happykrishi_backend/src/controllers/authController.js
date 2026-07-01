@@ -110,10 +110,17 @@ async function sendOtp(req, res) {
   // 1. Verified email → email (free, preferred for login)
   // 2. First phone verify → SMS preferred (proves the number); email only if SMS fails
   // 3. No verified email → SMS (charged, except first phone verify)
-  const user = db.prepare('SELECT id, email, email_verified, phone_verified, wallet_balance, password_hash FROM users WHERE phone = ?').get(phone);
+  const user = db.prepare('SELECT id, email, email_verified, phone_verified, wallet_balance, password_hash, role FROM users WHERE phone = ?').get(phone);
 
   const isFirstPhoneVerify = user && !user.phone_verified;
-  const smsConfigured = !!process.env.MSG91_AUTH_KEY || !!(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID);
+  const isAdmin = user && (user.role === 'admin' || user.role === 'subadmin');
+
+  // Admins always get OTP via email — free, no wallet charge, no email_verified check
+  if (isAdmin && user.email) {
+    const sent = await otpService.sendEmailOtp(user.email, code, user.name, 'login');
+    if (!sent) return res.status(503).json({ error: 'Email delivery failed.', channel_failed: 'email' });
+    return res.json({ message: 'OTP sent to your email', channel: 'email', hint: user.email.replace(/(.{2}).*(@.*)/, '$1***$2') });
+  }
 
   // For verified email login (not first phone verify) → email is free and reliable
   if (user?.email && user.email_verified && !isFirstPhoneVerify) {

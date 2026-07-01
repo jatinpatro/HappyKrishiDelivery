@@ -11,6 +11,33 @@ router.post('/admin-login', c.adminLogin);
 router.post('/email-signup', c.emailSignup);
 router.post('/email-login', c.emailLogin);
 
+// Check OTP channel without sending — returns { channel, cost, needs_email_verify, wallet_balance }
+router.get('/otp-channel', (req, res) => {
+  const { phone } = req.query;
+  if (!phone) return res.status(400).json({ error: 'phone required' });
+  const user = db.prepare('SELECT id, email, email_verified, phone_verified, wallet_balance, role FROM users WHERE phone = ?').get(phone);
+  if (!user) return res.json({ channel: 'sms', cost: 0, is_new: true });
+  const isAdmin = user.role === 'admin' || user.role === 'subadmin';
+  const isSalesman = user.role === 'salesman';
+  const isFirstPhoneVerify = !user.phone_verified;
+  if (isAdmin || isSalesman || (user.email && user.email_verified) || isFirstPhoneVerify) {
+    return res.json({ channel: 'email', cost: 0, needs_email_verify: !!(user.email && !user.email_verified) });
+  }
+  const smsCost = parseFloat(db.prepare("SELECT value FROM app_config WHERE key='sms_otp_cost'").get()?.value || '2');
+  res.json({
+    channel: 'sms',
+    cost: smsCost,
+    wallet_balance: user.wallet_balance,
+    needs_email_verify: !!(user.email && !user.email_verified),
+    can_use_password: true,
+  });
+});
+router.post('/verify-otp', c.verifyOtp);
+router.post('/phone-login', c.phoneLogin);
+router.post('/admin-login', c.adminLogin);
+router.post('/email-signup', c.emailSignup);
+router.post('/email-login', c.emailLogin);
+
 // Authenticated routes
 router.post('/register', authenticate, c.register);
 router.get('/me', authenticate, c.getMe);

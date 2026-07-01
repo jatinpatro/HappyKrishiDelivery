@@ -1,4 +1,4 @@
-import '../../core/theme/app_theme.dart'; 
+import '../../core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -8,9 +8,14 @@ import 'dart:async';
 import '../../core/api/endpoints.dart';
 import '../../core/providers/auth_provider.dart';
 
-// Farm location
-const _farmLat = 19.0746;
-const _farmLng = 84.5027;
+// Farm location loaded from app_config at runtime
+final _farmLocationProvider = FutureProvider.autoDispose<LatLng>((ref) async {
+  final res = await ref.read(dioProvider).get(Endpoints.adminConfig);
+  final cfg = Map<String, String>.from(res.data['config']);
+  final lat = double.tryParse(cfg['farm_lat'] ?? '') ?? 19.0746;
+  final lng = double.tryParse(cfg['farm_lng'] ?? '') ?? 84.5027;
+  return LatLng(lat, lng);
+});
 
 final _agentLocationsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -91,6 +96,8 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
   @override
   Widget build(BuildContext context) {
     final agentsAsync = ref.watch(_agentLocationsProvider);
+    final farmAsync   = ref.watch(_farmLocationProvider);
+    final farmPoint   = farmAsync.value ?? const LatLng(19.0746, 84.5027);
 
     return Scaffold(
       appBar: AppBar(
@@ -132,7 +139,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
           final markers = <Marker>[
             // Farm marker
             Marker(
-              point: const LatLng(_farmLat, _farmLng),
+              point: farmPoint,
               width: 36,
               height: 36,
               child: Tooltip(
@@ -199,7 +206,7 @@ class _AdminLiveMapScreenState extends ConsumerState<AdminLiveMapScreen> {
             FlutterMap(
               mapController: _mapController,
               options: MapOptions(
-                initialCenter: const LatLng(_farmLat, _farmLng),
+                initialCenter: farmPoint,
                 initialZoom: 12,
                 onMapReady: () => setState(() {
                   _mapReady = true;

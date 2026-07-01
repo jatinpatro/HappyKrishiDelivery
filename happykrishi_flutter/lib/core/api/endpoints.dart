@@ -12,7 +12,8 @@ class Endpoints {
   }
 
   // Auth
-  static const sendOtp = '/api/auth/send-otp';
+  static const sendOtp    = '/api/auth/send-otp';
+  static const otpChannel = '/api/auth/otp-channel';
   static const verifyOtp = '/api/auth/verify-otp';
   static const phoneLogin = '/api/auth/phone-login';
   static const register = '/api/auth/register';

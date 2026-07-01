@@ -617,5 +617,7 @@ try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('sms_otp_co
 try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('otp_rate_limit_per_hour', '5')"); } catch (_) {}
 try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('otp_rate_limit_per_day', '10')"); } catch (_) {}
 try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('low_wallet_warning_threshold', '100')"); } catch (_) {}
+try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('farm_lat', '19.0746')"); } catch (_) {}
+try { db.exec("INSERT OR IGNORE INTO app_config (key, value) VALUES ('farm_lng', '84.5027')"); } catch (_) {}
 
 module.exports = db;

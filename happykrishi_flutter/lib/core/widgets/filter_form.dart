@@ -98,7 +98,7 @@ class FilterFormState {
   /// taps the Load button (which changes the date range). All other filters
   /// are applied locally without a re-fetch.
   String toProviderKey([FilterFormConfig? _]) =>
-      '${_fmt(dateFrom) ?? ''}|${_fmt(dateTo) ?? ''}';
+      '${_fmt(dateFrom) ?? ''}|${_fmt(dateTo) ?? ''}|${search}';
 
   static String? _fmt(DateTime? d) {
     if (d == null) return null;

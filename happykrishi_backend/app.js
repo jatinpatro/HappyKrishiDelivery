@@ -77,6 +77,8 @@ app.get('/api/app-info', (req, res) => {
     farm: {
       name: config.farm_name || 'HappyKrishi',
       address: config.farm_address || '',
+      lat: parseFloat(config.farm_lat || '19.0746'),
+      lng: parseFloat(config.farm_lng || '84.5027'),
     },
     pickup: {
       enabled: config.pickup_enabled !== '0',
