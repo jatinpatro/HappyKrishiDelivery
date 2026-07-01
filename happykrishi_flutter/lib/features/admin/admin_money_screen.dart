@@ -200,7 +200,12 @@ class _TopupsTabState extends ConsumerState<_TopupsTab>
         matchesSearch(r, _filter.search, _topupSearchFields) &&
         matchesAllFilters(r, localFilters)).toList();
     final yetToRaiseCount = filtered.where((r) =>
-        r['status'] == 'approved' && r['settlement_id'] == null && r['settled_at'] == null).length;
+        r['status'] == 'approved' &&
+        r['settlement_id'] == null &&
+        r['settled_at'] == null &&
+        r['collected_by'] != null &&
+        r['payment_method'] == 'cash' // only cash collections need raising
+        ).length;
 
     return Column(children: [
       // ── Summary row ───────────────────────────────────────────────────────
@@ -2043,9 +2048,24 @@ class _WalletActivityTabState extends ConsumerState<_WalletActivityTab> {
                 filterFields: const ['dateRange', 'customer'],
                 fetchFn: (params) async {
                   params['limit'] = '1000';
+                  // Remap 'search' → 'customer_search' (wallet-audit uses customer_search)
+                  if (params.containsKey('search')) {
+                    params['customer_search'] = params.remove('search')!;
+                  }
+                  // Apply all active screen filters (override export sheet filters)
                   if (_typeFilter != null) params['type'] = _typeFilter!;
+                  if (_search.isNotEmpty) params['customer_search'] = _search;
+                  if (_dateFrom != null) params['date_from'] = '${_dateFrom!.year}-${_dateFrom!.month.toString().padLeft(2,'0')}-${_dateFrom!.day.toString().padLeft(2,'0')}';
+                  if (_dateTo != null) params['date_to'] = '${_dateTo!.year}-${_dateTo!.month.toString().padLeft(2,'0')}-${_dateTo!.day.toString().padLeft(2,'0')}';
                   final res = await ref.read(dioProvider).get(Endpoints.adminWalletAudit, queryParameters: params);
-                  return (res.data['transactions'] as List).cast<Map<String, dynamic>>();
+                  final txns = (res.data['transactions'] as List).cast<Map<String, dynamic>>();
+                  // Apply amount filters (client-side, same as display)
+                  return txns.where((t) {
+                    final amt = (t['amount'] as num).toDouble();
+                    if (_minAmount != null && amt < _minAmount!) return false;
+                    if (_maxAmount != null && amt > _maxAmount!) return false;
+                    return true;
+                  }).toList();
                 },
                 pdfFn: (ctx, records, dateLabel) => PdfService.shareAdminDirectTransactionsReport(
                   context: ctx, transactions: records,

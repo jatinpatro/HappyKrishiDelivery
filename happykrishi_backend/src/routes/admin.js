@@ -182,6 +182,9 @@ router.get('/categories/all', (req, res) => {
   res.json({ categories: cats });
 });
 
+// ── Live salesman locations ────────────────────────────────────────────────────
+router.get('/agents/locations', c.getAgentLocations);
+
 // ── Firebase Storage signed URL (admin-only image upload) ─────────────────────
 router.post('/storage/upload-url', requireRole('admin', 'subadmin'), async (req, res) => {
   const { filename, contentType } = req.body;
