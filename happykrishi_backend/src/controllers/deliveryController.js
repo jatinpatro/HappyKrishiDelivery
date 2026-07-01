@@ -160,7 +160,7 @@ function markDelivered(req, res) {
     }
   }
   // ──────────────────────────────────────────────────────────────────────────
-  const items = db.prepare('SELECT oi.*, p.name as product_name FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?').all(order.id);
+  const items = db.prepare('SELECT oi.*, p.name as product_name, p.unit FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?').all(order.id);
 
   const adjustments = [];
 
@@ -180,6 +180,7 @@ function markDelivered(req, res) {
       db.prepare("UPDATE order_items SET actual_qty=?, actual_total=? WHERE id=?").run(actualQty, actualTotal, item.id);
       adjustments.push({
         name: item.product_name,
+        unit: item.unit || '',
         estimated_qty: item.estimated_qty,
         actual_qty: actualQty,
         estimated_total: item.estimated_total,
@@ -198,19 +199,31 @@ function markDelivered(req, res) {
       let totalDiff = netAdjustments.reduce((s, a) => s + a.diff_amount, 0);
       const userRow = db.prepare('SELECT wallet_balance FROM users WHERE id = ?').get(order.user_id);
       let newBal;
+
+      // Build a compact per-product detail string stored in description:
+      // "ProductName: 1.2kg→0.9kg (₹-6); OtherProduct: 0.5kg→0.7kg (₹+4)"
+      const detailParts = netAdjustments.map(a => {
+        const sign = a.diff > 0 ? '+' : '';
+        const u = a.unit ? a.unit : '';
+        return `${a.name}: ${a.estimated_qty}${u}→${a.actual_qty}${u} (₹${sign}${a.diff.toFixed(2)})`;
+      });
+      const detail = detailParts.join('; ');
+
       if (totalDiff > 0) {
         // Customer owes more — debit (floor at 0)
         if (userRow.wallet_balance - totalDiff < 0) totalDiff = userRow.wallet_balance;
         newBal = parseFloat((userRow.wallet_balance - totalDiff).toFixed(2));
         db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBal, order.user_id);
         db.prepare(`INSERT INTO wallet_transactions (user_id,type,amount,balance_after,reference_type,reference_id,description) VALUES (?,?,?,?,?,?,?)`)
-          .run(order.user_id, 'adjustment', totalDiff, newBal, 'order', order.id, 'Weight adjustment — actual exceeded estimate');
+          .run(order.user_id, 'adjustment', totalDiff, newBal, 'order', order.id,
+               `Weight adjustment: ${detail}`);
       } else if (totalDiff < 0) {
         // Refund
         newBal = parseFloat((userRow.wallet_balance + Math.abs(totalDiff)).toFixed(2));
         db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBal, order.user_id);
         db.prepare(`INSERT INTO wallet_transactions (user_id,type,amount,balance_after,reference_type,reference_id,description) VALUES (?,?,?,?,?,?,?)`)
-          .run(order.user_id, 'refund', Math.abs(totalDiff), newBal, 'order', order.id, 'Weight adjustment — actual less than estimate');
+          .run(order.user_id, 'refund', Math.abs(totalDiff), newBal, 'order', order.id,
+               `Weight adjustment (refund): ${detail}`);
       }
       setImmediate(() => recalculateCustomerTier(order.user_id));
     }

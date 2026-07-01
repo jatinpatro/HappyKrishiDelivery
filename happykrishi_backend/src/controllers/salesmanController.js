@@ -694,15 +694,17 @@ function confirmAndAssignOrder(req, res) {
 
     // Apply actual weights if provided (weight-adjusted items)
     if (Array.isArray(actual_weights) && actual_weights.length > 0) {
+      const adjDetails = [];
       for (const w of actual_weights) {
         if (!w.order_item_id || w.actual_qty == null) continue;
-        const item = db.prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ?')
+        const item = db.prepare('SELECT oi.*, p.name as product_name, p.unit FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.id = ? AND oi.order_id = ?')
           .get(parseInt(w.order_item_id), orderId);
         if (!item) continue;
         const actualQty = parseFloat(w.actual_qty);
         const actualTotal = parseFloat((actualQty * item.unit_price).toFixed(2));
         db.prepare('UPDATE order_items SET actual_qty=?, actual_total=? WHERE id=?')
           .run(actualQty, actualTotal, item.id);
+        adjDetails.push({ name: item.product_name, unit: item.unit || '', estimatedQty: item.estimated_qty, actualQty, diff: actualTotal - (item.actual_total ?? item.estimated_total) });
       }
       // Recalculate order total from items
       const updatedItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
@@ -739,12 +741,14 @@ function confirmAndAssignOrder(req, res) {
       const diff = newFinal - order.final_amount;
       if (Math.abs(diff) > 0.01) {
         const walletService = require('../services/walletService');
+        const sigItems = adjDetails.filter(a => Math.abs(a.diff) > 0.005);
+        const adjDesc = sigItems.length
+          ? `Weight adjustment: ${sigItems.map(a => `${a.name}: ${a.estimatedQty}${a.unit}→${a.actualQty}${a.unit} (₹${a.diff >= 0 ? '+' : ''}${a.diff.toFixed(2)})`).join('; ')}`
+          : `Weight adjustment on order #${order.order_number}`;
         if (diff > 0) {
-          walletService.debit(order.user_id, diff, 'adjustment', 'order', orderId,
-            `Weight adjustment on order #${order.order_number}`);
+          walletService.debit(order.user_id, diff, 'adjustment', 'order', orderId, adjDesc);
         } else {
-          walletService.credit(order.user_id, Math.abs(diff), 'refund', 'order', orderId,
-            `Weight adjustment refund on order #${order.order_number}`);
+          walletService.credit(order.user_id, Math.abs(diff), 'refund', 'order', orderId, adjDesc);
         }
       }
     }

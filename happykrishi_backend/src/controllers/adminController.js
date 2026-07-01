@@ -813,10 +813,11 @@ function updateOrderItemWeights(req, res) {
 
   let totalDiff = 0;
   let itemsUpdated = 0;
+  const adjDetails = []; // per-product detail for wallet description
 
   db.transaction(() => {
     for (const entry of items) {
-      const item = db.prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ?')
+      const item = db.prepare('SELECT oi.*, p.name as product_name, p.unit FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.id = ? AND oi.order_id = ?')
         .get(entry.order_item_id, orderId);
       if (!item) continue;
 
@@ -828,6 +829,7 @@ function updateOrderItemWeights(req, res) {
       db.prepare('UPDATE order_items SET actual_qty=?, actual_total=? WHERE id=?')
         .run(newQty, newTotal, item.id);
 
+      adjDetails.push({ name: item.product_name, unit: item.unit || '', estimatedQty: item.estimated_qty, actualQty: newQty, diff });
       totalDiff += diff;
       itemsUpdated++;
     }
@@ -916,10 +918,18 @@ function updateOrderItemWeights(req, res) {
       }
       db.prepare('UPDATE users SET wallet_balance = ? WHERE id = ?').run(newBal, order.user_id);
 
-      let desc = `Weight adjustment — order #${order.order_number}`;
-      const parts = [];
-      if (Math.abs(totalDiff - (netDiff)) > 0.01 || Math.abs(deliveryChargeDiff) > 0.01 || Math.abs(discountDiff) > 0.01) {
-        if (Math.abs(totalDiff) > 0.01) parts.push(`items ${totalDiff >= 0 ? '+' : ''}₹${(totalDiff - discountDiff).toFixed(2)}`);
+      let desc = `Weight adjustment: order #${order.order_number}`;
+      const sigItems = adjDetails.filter(a => Math.abs(a.diff) > 0.005);
+      if (sigItems.length) {
+        const itemParts = sigItems.map(a => {
+          const sign = a.diff >= 0 ? '+' : '';
+          return `${a.name}: ${a.estimatedQty}${a.unit}→${a.actualQty}${a.unit} (₹${sign}${a.diff.toFixed(2)})`;
+        });
+        if (Math.abs(deliveryChargeDiff) > 0.01) itemParts.push(`delivery ₹${deliveryChargeDiff >= 0 ? '+' : ''}${deliveryChargeDiff.toFixed(2)}`);
+        if (Math.abs(discountDiff) > 0.01) itemParts.push(`coupon ₹${(-discountDiff).toFixed(2)}`);
+        desc = `Weight adjustment: ${itemParts.join('; ')}`;
+      } else {
+        const parts = [];
         if (Math.abs(deliveryChargeDiff) > 0.01) parts.push(`delivery ${deliveryChargeDiff >= 0 ? '+' : ''}₹${deliveryChargeDiff.toFixed(2)}`);
         if (Math.abs(discountDiff) > 0.01) parts.push(`coupon discount ${discountDiff >= 0 ? '+' : ''}₹${discountDiff.toFixed(2)}`);
         if (parts.length) desc += ` (${parts.join(', ')})`;

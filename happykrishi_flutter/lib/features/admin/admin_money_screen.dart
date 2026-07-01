@@ -2569,7 +2569,7 @@ class _WalletActivityCard extends StatelessWidget {
                 ],
               ]),
               if (desc != null && desc.isNotEmpty)
-                Text(desc, style: const TextStyle(fontSize: 11, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
+                _DescriptionRow(desc: desc, color: s.color),
               if (handledBy != null)
                 Text(handledBy, style: TextStyle(fontSize: 11, color: Colors.teal.shade700, fontWeight: FontWeight.w500)),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -2584,6 +2584,64 @@ class _WalletActivityCard extends StatelessWidget {
     );
   }
 }
+
+// Renders a wallet transaction description.
+// Weight adjustment descriptions have per-product detail lines separated by "; ".
+// Format: "Weight adjustment: Tomato: 1.2kg→0.9kg (₹-6); Onion: 0.5kg→0.7kg (₹+4)"
+class _DescriptionRow extends StatelessWidget {
+  final String desc;
+  final Color color;
+  const _DescriptionRow({required this.desc, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final isWeightAdj = desc.startsWith('Weight adjustment');
+    if (!isWeightAdj) {
+      return Text(desc,
+          style: const TextStyle(fontSize: 11, color: Colors.grey),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis);
+    }
+
+    // Split "Weight adjustment: <detail>" — detail has one entry per product
+    final colonIdx = desc.indexOf(':');
+    final header   = colonIdx < 0 ? desc : desc.substring(0, colonIdx).trim();
+    final detail   = colonIdx < 0 ? '' : desc.substring(colonIdx + 1).trim();
+    final products = detail.isNotEmpty
+        ? detail.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+        : <String>[];
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(header,
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+      ...products.map((line) {
+        // Highlight the money part "(₹±X)" in color
+        final moneyMatch = RegExp(r'\(₹([^)]+)\)').firstMatch(line);
+        if (moneyMatch == null) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text('  $line', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          );
+        }
+        final before = line.substring(0, moneyMatch.start).trim();
+        final money  = moneyMatch.group(0)!;
+        final isPos  = money.contains('+');
+        final moneyColor = isPos ? Colors.red : AppColors.primary;
+        return Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Row(children: [
+            const SizedBox(width: 4),
+            const Icon(Icons.scale, size: 10, color: Colors.grey),
+            const SizedBox(width: 4),
+            Expanded(child: Text(before, style: const TextStyle(fontSize: 11, color: Colors.grey))),
+            Text(money, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: moneyColor)),
+          ]),
+        );
+      }),
+    ]);
+  }
+}
+
 class _SalesmanBreakdown {
   final String name, role;
   double total = 0, outstanding = 0, received = 0;

@@ -847,6 +847,42 @@ class _TxnCard extends StatelessWidget {
     return (color: const Color(0xFFC62828), icon: Icons.remove_circle_outline, label: 'Debit');
   }
 
+  static Widget _buildDescription(String? desc, String fallbackLabel, Color color) {
+    if (desc == null || desc.isEmpty) {
+      return Text(fallbackLabel,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          maxLines: 1, overflow: TextOverflow.ellipsis);
+    }
+    if (!desc.startsWith('Weight adjustment')) {
+      return Text(desc,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          maxLines: 2, overflow: TextOverflow.ellipsis);
+    }
+    final colonIdx = desc.indexOf(':');
+    final header   = colonIdx < 0 ? desc : desc.substring(0, colonIdx).trim();
+    final detail   = colonIdx < 0 ? '' : desc.substring(colonIdx + 1).trim();
+    final products = detail.isNotEmpty
+        ? detail.split(';').map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+        : <String>[];
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(header, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color)),
+      ...products.map((line) {
+        final m = RegExp(r'\(₹([^)]+)\)').firstMatch(line);
+        if (m == null) return Text('  $line', style: const TextStyle(fontSize: 11, color: Colors.grey));
+        final before     = line.substring(0, m.start).trim();
+        final money      = m.group(0)!;
+        final moneyColor = money.contains('+') ? Colors.red : AppColors.primary;
+        return Row(children: [
+          const SizedBox(width: 4),
+          const Icon(Icons.scale, size: 10, color: Colors.grey),
+          const SizedBox(width: 4),
+          Expanded(child: Text(before, style: const TextStyle(fontSize: 11, color: Colors.grey))),
+          Text(money, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: moneyColor)),
+        ]);
+      }),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = _style;
@@ -876,11 +912,7 @@ class _TxnCard extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(
-            txn.description ?? s.label,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            maxLines: 2, overflow: TextOverflow.ellipsis,
-          ),
+          _buildDescription(txn.description, s.label, s.color),
           const SizedBox(height: 3),
           Row(children: [
             Container(
