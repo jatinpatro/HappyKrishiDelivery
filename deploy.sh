@@ -84,6 +84,22 @@ flutter build apk \
   --dart-define=API_BASE_URL="${API_BASE_URL}" \
   --dart-define=WS_BASE_URL="${WS_BASE_URL}"
 log "✓ APK built: build/app/outputs/flutter-apk/app-release.apk"
+
+##################################
+# BUILD FLUTTER AAB (Play Store)
+##################################
+log "Building Flutter App Bundle for Play Store..."
+flutter build appbundle \
+  --release \
+  --dart-define=API_BASE_URL="${API_BASE_URL}" \
+  --dart-define=WS_BASE_URL="${WS_BASE_URL}"
+AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
+if [ -f "${AAB_PATH}" ]; then
+  cp "${AAB_PATH}" "${FLUTTER_DIR}/happykrishi-delivery.aab"
+  log "✓ AAB built → happykrishi_flutter/happykrishi-delivery.aab  (upload this to Play Store)"
+else
+  log "⚠ AAB not found at ${AAB_PATH} — skipping"
+fi
 cd - > /dev/null
 
 ##################################

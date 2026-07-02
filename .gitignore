@@ -9,6 +9,11 @@ happykrishi_backend/logs/
 happykrishi_backend/uploads/
 happykrishi_backend/*.pid
 
+# Android signing — NEVER commit these
+happykrishi_flutter/android/key.properties
+*.jks
+*.keystore
+
 # Flutter build artifacts
 happykrishi_flutter/build/
 happykrishi_flutter/.dart_tool/
