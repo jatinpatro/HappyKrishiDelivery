@@ -11,6 +11,7 @@ happykrishi_backend/*.pid
 
 # Android signing — NEVER commit these
 happykrishi_flutter/android/key.properties
+happykrishi_flutter/android/happykrishi-release.jks
 *.jks
 *.keystore
 
