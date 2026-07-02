@@ -155,20 +155,16 @@ log "✓ Uploads protected"
 ##################################
 log "Syncing Flutter web..."
 rsync -az --delete \
-  --exclude='privacy-policy.html' \
-  --exclude='terms-of-service.html' \
   -e "ssh ${SSH_OPTS}" \
   "${FLUTTER_DIR}/build/web/" \
   ${REMOTE_USER}@${REMOTE_HOST}:${WEB_DIR}/
 log "✓ Flutter web synced"
 
-# Sync static pages (not part of Flutter build, preserved across deploys)
-for f in privacy-policy.html terms-of-service.html; do
-  if [ -f "${FLUTTER_DIR}/web/${f}" ]; then
-    rsync -az -e "ssh ${SSH_OPTS}" "${FLUTTER_DIR}/web/${f}" ${REMOTE_USER}@${REMOTE_HOST}:${WEB_DIR}/
-    log "✓ Synced ${f}"
-  fi
-done
+# Sync static pages (privacy policy, terms — live alongside the Flutter app)
+if [ -d "$(dirname "$0")/static" ]; then
+  rsync -az -e "ssh ${SSH_OPTS}" "$(dirname "$0")/static/" ${REMOTE_USER}@${REMOTE_HOST}:${WEB_DIR}/
+  log "✓ Static pages synced"
+fi
 
 ##################################
 # SYNC APK
