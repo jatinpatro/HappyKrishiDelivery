@@ -126,7 +126,73 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
     (key: 'recent',       label: 'Newest first'),
     (key: 'wallet_desc',  label: 'Wallet ↓'),
     (key: 'wallet_asc',   label: 'Wallet ↑'),
+    (key: 'last_login',   label: 'Last login'),
+    (key: 'last_active',  label: 'Last active'),
   ];
+
+  void _showWalletSheet() {
+    _showPickerSheet(
+      title: 'Filter by Wallet',
+      options: _walletOptions.map((o) => (key: o.key, label: o.label, icon: Icons.account_balance_wallet_outlined, color: o.color)).toList(),
+      selected: _walletFilter,
+      onSelect: (v) { setState(() => _walletFilter = v); _load(reset: true); },
+    );
+  }
+
+  void _showSortSheet() {
+    _showPickerSheet(
+      title: 'Sort by',
+      options: _sortOptions.map((o) => (key: o.key, label: o.label, icon: Icons.sort, color: const Color(0xFF1565C0))).toList(),
+      selected: _sortFilter,
+      onSelect: (v) { setState(() => _sortFilter = v); _load(reset: true); },
+    );
+  }
+
+  void _showStatusSheet() {
+    _showPickerSheet(
+      title: 'Filter by Status',
+      options: [
+        (key: '',  label: 'All',      icon: Icons.all_inclusive,   color: AppColors.primary),
+        (key: '1', label: 'Active',   icon: Icons.check_circle,    color: AppColors.primary),
+        (key: '0', label: 'Inactive', icon: Icons.block_outlined,  color: Colors.red),
+      ],
+      selected: _activeFilter,
+      onSelect: (v) { setState(() => _activeFilter = v); _load(reset: true); },
+    );
+  }
+
+  void _showPickerSheet({
+    required String title,
+    required List<({String key, String label, IconData icon, Color color})> options,
+    required String selected,
+    required void Function(String) onSelect,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 8),
+          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 12),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 4),
+          const Divider(height: 1),
+          ...options.map((o) => ListTile(
+            leading: CircleAvatar(
+              radius: 16,
+              backgroundColor: o.key == selected ? o.color : o.color.withValues(alpha: 0.12),
+              child: Icon(o.icon, size: 16, color: o.key == selected ? Colors.white : o.color),
+            ),
+            title: Text(o.label),
+            trailing: o.key == selected ? Icon(Icons.check, color: o.color) : null,
+            onTap: () { Navigator.pop(context); onSelect(o.key); },
+          )),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -210,67 +276,35 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              const Text('Wallet:',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                      color: Colors.black54)),
+              // Wallet pill
+              Expanded(child: _PillButton(
+                label: 'Wallet',
+                value: _walletOptions.firstWhere((o) => o.key == _walletFilter, orElse: () => _walletOptions.first).label,
+                active: _walletFilter.isNotEmpty,
+                icon: Icons.account_balance_wallet_outlined,
+                color: const Color(0xFF00695C),
+                onTap: () => _showWalletSheet(),
+              )),
               const SizedBox(width: 8),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: _walletOptions.map((o) => Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: _FilterChip(
-                        label: o.label,
-                        selected: _walletFilter == o.key,
-                        color: o.color,
-                        onTap: () { setState(() => _walletFilter = o.key); _load(reset: true); },
-                      ),
-                    )).toList(),
-                  ),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            Row(children: [
-              const Text('Sort:',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                      color: Colors.black54)),
+              // Sort pill
+              Expanded(child: _PillButton(
+                label: 'Sort',
+                value: _sortOptions.firstWhere((o) => o.key == _sortFilter, orElse: () => _sortOptions.first).label,
+                active: _sortFilter != 'name',
+                icon: Icons.sort,
+                color: const Color(0xFF1565C0),
+                onTap: () => _showSortSheet(),
+              )),
               const SizedBox(width: 8),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: _sortOptions.map((o) => Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: _FilterChip(
-                        label: o.label,
-                        selected: _sortFilter == o.key,
-                        color: const Color(0xFF1565C0),
-                        onTap: () { setState(() => _sortFilter = o.key); _load(reset: true); },
-                      ),
-                    )).toList(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _FilterChip(
-                label: _activeFilter == '1'
-                    ? 'Active'
-                    : _activeFilter == '0'
-                        ? 'Inactive'
-                        : 'All',
-                selected: _activeFilter.isNotEmpty,
+              // Status pill
+              Expanded(child: _PillButton(
+                label: 'Status',
+                value: _activeFilter == '1' ? 'Active' : _activeFilter == '0' ? 'Inactive' : 'All',
+                active: _activeFilter.isNotEmpty,
+                icon: Icons.toggle_on_outlined,
                 color: _activeFilter == '0' ? Colors.red : AppColors.primary,
-                onTap: () {
-                  setState(() {
-                    if (_activeFilter == '') { _activeFilter = '1'; }
-                    else if (_activeFilter == '1') { _activeFilter = '0'; }
-                    else { _activeFilter = ''; }
-                  });
-                  _load(reset: true);
-                },
-              ),
+                onTap: () => _showStatusSheet(),
+              )),
             ]),
             FilterBar(
               config: _customerFilterConfig,
@@ -357,33 +391,43 @@ class _AdminCustomersScreenState extends ConsumerState<AdminCustomersScreen> {
   }
 }
 
-// ── Reusable filter chip ──────────────────────────────────────────────────────
+// ── Pill button — taps to open a picker sheet ─────────────────────────────────
 
-class _FilterChip extends StatelessWidget {
+class _PillButton extends StatelessWidget {
   final String label;
-  final bool selected;
+  final String value;
+  final bool active;
+  final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  const _FilterChip({required this.label, required this.selected,
-      required this.color, required this.onTap});
+  const _PillButton({required this.label, required this.value, required this.active,
+      required this.icon, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: AnimatedContainer(
       duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: selected ? color : Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: selected ? color : Colors.grey.shade300),
+        color: active ? color.withValues(alpha: 0.1) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: active ? color : Colors.grey.shade300),
       ),
-      child: Text(label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : Colors.black87,
-          )),
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(icon, size: 14, color: active ? color : Colors.grey.shade600),
+        const SizedBox(width: 5),
+        Flexible(child: Text(
+          value,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+              color: active ? color : Colors.black87),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+        )),
+        const SizedBox(width: 3),
+        Icon(Icons.keyboard_arrow_down, size: 14,
+            color: active ? color : Colors.grey.shade400),
+      ]),
     ),
   );
 }

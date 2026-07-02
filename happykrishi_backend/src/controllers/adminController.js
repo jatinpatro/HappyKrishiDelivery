@@ -367,9 +367,11 @@ function listUsers(req, res) {
   if (is_active === '1')      { where += ' AND u.is_active = 1'; }
   if (is_active === '0')      { where += ' AND u.is_active = 0'; }
 
-  const orderBy = sort === 'wallet_asc'  ? 'u.wallet_balance ASC'
-                : sort === 'wallet_desc' ? 'u.wallet_balance DESC'
-                : sort === 'recent'      ? 'u.created_at DESC'
+  const orderBy = sort === 'wallet_asc'   ? 'u.wallet_balance ASC'
+                : sort === 'wallet_desc'  ? 'u.wallet_balance DESC'
+                : sort === 'recent'       ? 'u.created_at DESC'
+                : sort === 'last_login'   ? 'u.last_login_at DESC NULLS LAST'
+                : sort === 'last_active'  ? 'u.last_active_at DESC NULLS LAST'
                 : 'u.name';
 
   const users = db.prepare(`
